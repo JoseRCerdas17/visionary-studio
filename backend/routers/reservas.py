@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from emails import enviar_confirmacion_cliente, enviar_notificacion_admin
 from sqlalchemy.orm import Session
 from database.connection import get_db
 from models.reserva import Reserva
@@ -37,6 +38,25 @@ def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
     db.add(nueva_reserva)
     db.commit()
     db.refresh(nueva_reserva)
+    enviar_confirmacion_cliente(
+        nombre=reserva.nombre,
+        email=reserva.email,
+        barbero=reserva.barbero,
+        servicio=reserva.servicio,
+        precio=reserva.precio,
+        fecha=reserva.fecha,
+        hora=reserva.hora
+    )
+    enviar_notificacion_admin(
+        nombre=reserva.nombre,
+        telefono=reserva.telefono,
+        email=reserva.email,
+        barbero=reserva.barbero,
+        servicio=reserva.servicio,
+        precio=reserva.precio,
+        fecha=reserva.fecha,
+        hora=reserva.hora
+    )
     return nueva_reserva
 
 @router.get("/")
