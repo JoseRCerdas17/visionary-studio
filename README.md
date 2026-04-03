@@ -1,13 +1,13 @@
 # Evolution X Barbershop 💈
 
-Plataforma web completa para **Evolution X Barbershop**, una barbería premium ubicada en Liberia, Guanacaste, Costa Rica. Incluye landing page, sistema de reservas, panel de administración y notificaciones por email.
+Plataforma web completa para **NobelCut Barbershop**, una barbería premium ubicada en Liberia, Guanacaste, Costa Rica. Incluye landing page, sistema de reservas, panel de administración y notificaciones por email.
 
 ## 🌐 Demo en vivo
 
-- **Frontend:** [evolution-x-eight.vercel.app](https://evolution-x-eight.vercel.app)
+- **Frontend:** [NobelCut-eight.vercel.app](https://nobelcut-eight.vercel.app)
 - **Backend API:** [evolution-x-production.up.railway.app](https://evolution-x-production.up.railway.app)
 - **Documentación API:** [evolution-x-production.up.railway.app/docs](https://evolution-x-production.up.railway.app/docs)
-- **Panel Admin:** [evolution-x-eight.vercel.app/admin](https://evolution-x-eight.vercel.app/admin)
+- **Panel Admin:** [NobelCut-eight.vercel.app/admin](https://nobelcut-eight.vercel.app//admin)
 
 ## ✨ Funcionalidades
 
@@ -80,7 +80,7 @@ RESEND_API_KEY=tu-resend-api-key
 ## 📱 Capturas de pantalla
 
 ### Landing page
-![Landing page Evolution X](screenshots/landing.png)
+![Landing page NobelCut](screenshots/landing.png)
 
 ### Sistema de reservas
 ![Sistema de reservas](screenshots/reservas.png)

@@ -82,7 +82,7 @@ export default function Admin() {
 
       <div className="bg-dark-card border-b border-dark-border px-6 py-4 flex items-center justify-between">
         <div>
-          <span className="text-gold font-black text-xl tracking-widest uppercase">Evolution <span className="text-white">X</span></span>
+          <span className="text-white font-black text-xl tracking-widest uppercase">Noble<span className="text-gold">Cut</span></span>
           <p className="text-gray-500 text-xs uppercase tracking-wider mt-1">Panel de Administración</p>
         </div>
         <div className="flex gap-3">
