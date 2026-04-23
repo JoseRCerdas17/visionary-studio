@@ -1,17 +1,14 @@
 @import "tailwindcss";
 
 @theme {
-  --color-gold: #2563EB;
-  --color-gold-light: #3B82F6;
-  --color-gold-dark: #1D4ED8;
-  --color-gold-muted: #60A5FA;
-
+  --color-gold: #E0B84C;
+  --color-gold-light: #F0C95A;
+  --color-gold-dark: #B8872E;
+  --color-gold-muted: #C9A035;
   --color-dark: #0A0A0A;
-  --color-dark-card: #111111;
-  --color-dark-surface: #1A1A1A;
-  --color-dark-border: #252525;
-
-  --font-sans: "Montserrat", sans-serif;
+  --color-dark-card: #1A1A1A;
+  --color-dark-surface: #2D2D2D;
+  --color-dark-border: #2A2A2A;
 }
 
 @layer base {
@@ -20,7 +17,7 @@
   }
 
   body {
-    background-color: #0A0A0A;
+    background-color: #1A1A1A;
     color: #ffffff;
   }
 }
@@ -31,7 +28,7 @@
   }
 
   .btn-gold:hover {
-    background-color: #1D4ED8;
+    background-color: #A07828;
   }
 
   .btn-outline {
@@ -48,8 +45,8 @@
 }
 
 .react-calendar {
-  background-color: #1A1A1A !important;
-  border: 1px solid #252525 !important;
+  background-color: #252525 !important;
+  border: 1px solid #2A2A2A !important;
   border-radius: 8px !important;
   padding: 16px !important;
   width: 100% !important;
@@ -70,12 +67,12 @@
 
 .react-calendar__tile:enabled:hover {
   background-color: #1A1A1A !important;
-  color: #3B82F6 !important;
+  color: #D4A017 !important;
 }
 
 .react-calendar__tile--active,
 .react-calendar__tile--active:enabled:hover {
-  background-color: #2563EB !important;
+  background-color: #D4A017 !important;
   color: #ffffff !important;
 }
 
@@ -84,17 +81,17 @@
 }
 
 .react-calendar__navigation {
-  background-color: #1A1A1A !important;
+  background-color: #252525 !important;
 }
 
 .react-calendar__navigation button {
   background-color: transparent !important;
-  color: #3B82F6 !important;
+  color: #D4A017 !important;
   font-weight: bold !important;
 }
 
 .react-calendar__navigation button:enabled:hover {
-  background-color: #252525 !important;
+  background-color: #2A2A2A !important;
   border-radius: 6px !important;
 }
 

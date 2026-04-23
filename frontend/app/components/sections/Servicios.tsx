@@ -1,27 +1,35 @@
 const servicios = [
   {
-    nombre: "Corte Imperial",
+    nombre: "Corte de Cabello",
     precio: "₡4,000",
     duracion: "30 min",
-    descripcion: "Corte de imagen completa, técnico a tijera o máquina con acabado premium y asesoría personalizada de imagen.",
+    descripcion: "Corte de cabello personalizado con las mejores herramientas con acabado premium y asesoría de imagen.",
     imagen: "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=600&q=80",
     tag: "01",
   },
   {
-    nombre: "Ritual de Barba",
+    nombre: "Corte y Barba",
     precio: "₡5,000",
-    duracion: "45 min",
-    descripcion: "Ritual tradicional con toallas calientes, espuma de barba y aceites esenciales para un perfilado perfecto y piel revitalizada.",
+    duracion: "30 min",
+    descripcion: "Combo completo: corte de cabello y arreglo de barba para una imagen impecable de pies a cabeza.",
     imagen: "https://images.unsplash.com/photo-1599351431202-1e0f0137899a?w=600&q=80",
     tag: "02",
   },
   {
-    nombre: "Experiencia Noble",
-    precio: "₡8,000",
-    duracion: "70 min",
-    descripcion: "Diseño y cuidado de barba según la fisonomía facial, renovado con corte perfecto y aplicación de bálsamo nutritivo.",
+    nombre: "Marcado y/o Barba",
+    precio: "₡2,000",
+    duracion: "15 min",
+    descripcion: "Definición de líneas y contornos, arreglo de barba con acabado profesional y limpio.",
     imagen: "https://images.unsplash.com/photo-1622287162716-f311baa1a2b8?w=600&q=80",
     tag: "03",
+  },
+  {
+    nombre: "Cejas",
+    precio: "₡1,000",
+    duracion: "5 min",
+    descripcion: "Diseño y depilación de cejas para un look limpio, definido y con acabado de detalle.",
+    imagen: "https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=600&q=80",
+    tag: "04",
   },
 ];
 
@@ -40,12 +48,12 @@ export default function Servicios() {
               Nuestra Maestría
             </h2>
             <p className="text-gray-500 text-sm max-w-md mt-4 leading-relaxed">
-              Ofrecemos una selección de servicios diseñados para el hombre que
-              no compromete su imagen. Cada técnica es un ritual de perfección.
+              Servicios diseñados para el hombre que no compromete su imagen.
+              Cada técnica es un ritual de perfección ejecutado por Lobo.
             </p>
           </div>
           <a href="/reservar" className="text-gold text-sm tracking-wider hover:text-gold-light transition-colors flex items-center gap-2 flex-shrink-0">
-            Explorar carta completa
+            Reservar ahora
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
             </svg>
@@ -53,14 +61,14 @@ export default function Servicios() {
         </div>
 
         {/* Grid de servicios */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {servicios.map((servicio) => (
             <div
               key={servicio.nombre}
               className="bg-dark-card border border-dark-border rounded-lg overflow-hidden group hover:border-gold transition-all duration-300"
             >
               {/* Imagen */}
-              <div className="relative h-52 overflow-hidden">
+              <div className="relative h-48 overflow-hidden">
                 <img
                   src={servicio.imagen}
                   alt={servicio.nombre}
@@ -81,9 +89,9 @@ export default function Servicios() {
               </div>
 
               {/* Contenido */}
-              <div className="p-6">
+              <div className="p-5">
                 <p className="text-gold font-black text-2xl mb-1">{servicio.precio}</p>
-                <h3 className="text-white font-bold text-xl mb-3 group-hover:text-gold transition-colors duration-300">
+                <h3 className="text-white font-bold text-lg mb-3 group-hover:text-gold transition-colors duration-300">
                   {servicio.nombre}
                 </h3>
                 <p className="text-gray-500 text-sm leading-relaxed mb-5">
@@ -106,8 +114,6 @@ export default function Servicios() {
         {/* Nota de precios */}
         <p className="text-center text-gray-600 text-xs mt-10 tracking-wider">
           * Precios en colones costarricenses. Pago al asistir.
-          <span className="mx-3 text-dark-border">|</span>
-          Cejas: ₡1,000 · Marcado: ₡2,000
         </p>
 
       </div>

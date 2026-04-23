@@ -1,4 +1,6 @@
+"use client";
 import Link from "next/link";
+
 
 export default function Hero() {
   return (
@@ -39,17 +41,26 @@ export default function Hero() {
             </div>
 
             {/* Título */}
-            <h1 className="text-white font-black uppercase leading-[0.9] text-[2.4rem] sm:text-5xl md:text-7xl lg:text-8xl">
-              Tu Estilo,
+                        <h1 className="text-white font-black uppercase leading-[0.9] text-[2.4rem] sm:text-5xl md:text-7xl lg:text-8xl">
+              Donde el Estilo
             </h1>
-            <h1 className="text-gold font-black uppercase italic leading-[0.9] text-[2.4rem] sm:text-5xl md:text-7xl lg:text-8xl mb-8">
-              Evolucionado
+            <h1
+              className="font-black uppercase leading-none text-[2.4rem] sm:text-5xl md:text-7xl lg:text-8xl mb-8"
+              style={{
+                background: "linear-gradient(45deg, #B8872E, #F0C95A)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
+            >
+              Se Vuelve Arte
             </h1>
 
             {/* Descripción */}
             <p className="text-gray-400 text-sm md:text-base max-w-lg leading-relaxed mb-10">
-              Grooming premium para el caballero moderno. Experimenta cortes de
-              precisión y tratamientos de lujo en un ambiente de distinción total.
+            Precisión, estilo y buen ambiente.
+            Todo lo que esperás de un buen corte, sin complicaciones.
+            Tu estilo empieza aquí.
             </p>
 
             {/* Botones */}
@@ -60,56 +71,26 @@ export default function Hero() {
               >
                 Reservar Cita
               </Link>
-              <Link
-                href="#servicios"
+              <button
+                onClick={() => {
+                  const element = document.getElementById("servicios");
+                  if (element) {
+                    const navbarHeight = document.querySelector("nav")?.offsetHeight || 100;
+                    const elementPosition = element.getBoundingClientRect().top + window.scrollY;
+                    window.scrollTo({ top: elementPosition - navbarHeight, behavior: "smooth" });
+                  }
+                }}
                 className="btn-outline text-center uppercase tracking-widest text-sm px-8 py-4"
               >
                 Ver Servicios
-              </Link>
+              </button>
             </div>
 
           </div>
         </div>
       </div>
 
-      {/* Barra de stats */}
-      <div className="relative z-10 border-t border-dark-border bg-dark-card">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-3 divide-x divide-dark-border">
-
-            <div className="flex items-center gap-2 sm:gap-4 px-3 sm:px-8 lg:px-12 py-4 sm:py-6">
-              <svg className="w-4 h-4 sm:w-6 sm:h-6 text-gold shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-              </svg>
-              <div className="min-w-0">
-                <p className="text-white font-black text-lg sm:text-2xl leading-none">5.0</p>
-                <p className="text-gray-600 text-[9px] sm:text-xs tracking-[1px] sm:tracking-[2px] uppercase mt-0.5 truncate">Google Maps</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 sm:gap-4 px-3 sm:px-8 lg:px-12 py-4 sm:py-6">
-              <svg className="w-4 h-4 sm:w-6 sm:h-6 text-gold shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
-              </svg>
-              <div className="min-w-0">
-                <p className="text-white font-black text-lg sm:text-2xl leading-none">15+</p>
-                <p className="text-gray-600 text-[9px] sm:text-xs tracking-[1px] sm:tracking-[2px] uppercase mt-0.5 truncate">Expertos</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 sm:gap-4 px-3 sm:px-8 lg:px-12 py-4 sm:py-6">
-              <svg className="w-4 h-4 sm:w-6 sm:h-6 text-gold shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-              </svg>
-              <div className="min-w-0">
-                <p className="text-white font-black text-lg sm:text-2xl leading-none">10k+</p>
-                <p className="text-gray-600 text-[9px] sm:text-xs tracking-[1px] sm:tracking-[2px] uppercase mt-0.5 truncate">Clientes</p>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </div>
+      
 
     </section>
   );

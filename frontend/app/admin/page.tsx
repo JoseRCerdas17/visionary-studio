@@ -82,7 +82,10 @@ export default function Admin() {
 
       <div className="bg-dark-card border-b border-dark-border px-6 py-4 flex items-center justify-between">
         <div>
-          <span className="text-white font-black text-xl tracking-widest uppercase">Noble<span className="text-gold">Cut</span></span>
+          <div>
+            <span className="text-white font-black text-xl tracking-widest uppercase">Visionary Studio</span>
+            <span className="text-gold font-black text-xl italic tracking-widest uppercase"> Barber Shop</span>
+          </div>
           <p className="text-gray-500 text-xs uppercase tracking-wider mt-1">Panel de Administración</p>
         </div>
         <div className="flex gap-3">

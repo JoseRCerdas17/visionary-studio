@@ -8,11 +8,7 @@ import Navbar from "../components/layout/Navbar";
 import Footer from "../components/layout/Footer";
 
 const barberos = [
-  { id: 1, nombre: "Marco Ricci", especialidad: "Senior Master Barber", iniciales: "MR" },
-  { id: 2, nombre: "Adrian Thorne", especialidad: "Especialista en Afeitado", iniciales: "AT" },
-  { id: 3, nombre: "James Soler", especialidad: "Director Creativo", iniciales: "JS" },
-  { id: 4, nombre: "Lucía Méndez", especialidad: "Hair Styling Expert", iniciales: "LM" },
-  { id: 5, nombre: "Dante Cruz", especialidad: "Especialista en Fade", iniciales: "DC" },
+  { id: 1, nombre: "Alonso Lobo", especialidad: "Owner & Master Barber", iniciales: "AL" },
 ];
 
 const servicios = [
@@ -23,9 +19,8 @@ const servicios = [
 ];
 
 const horarios = [
-  "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM",
-  "11:00 AM", "11:30 AM", "1:00 PM", "1:30 PM",
-  "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM",
+  "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
+  "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM",
   "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM",
 ];
 
@@ -72,7 +67,7 @@ const router = useRouter();
       } else {
         alert("Error al crear la reserva, intenta de nuevo");
       }
-    } catch (error) {
+    } catch {
       alert("Error de conexión con el servidor");
     } finally {
       setCargando(false);
@@ -90,7 +85,7 @@ const router = useRouter();
             </div>
             <h2 className="text-white font-black text-2xl uppercase mb-2">Cita Confirmada</h2>
             <p className="text-gray-500 text-sm mb-6">
-              Tu cita ha sido agendada exitosamente. Te esperamos en NobleCut Barbershop.
+              Tu cita ha sido agendada exitosamente. Te esperamos en Visionary Studio Barber Shop.
             </p>
             <div className="bg-dark rounded-lg p-4 mb-6 text-left flex flex-col gap-2">
               <p className="text-gray-500 text-xs uppercase tracking-wider">Resumen</p>
@@ -148,7 +143,7 @@ const router = useRouter();
               {paso === 0 && (
                 <div>
                   <h2 className="text-white font-bold text-xl mb-6">Elige tu barbero</h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-4">
                     {barberos.map((b) => (
                       <button key={b.id} onClick={() => setBarberoSeleccionado(b.id)} className={`p-4 rounded-lg border text-left transition-all duration-300 ${barberoSeleccionado === b.id ? "border-gold bg-dark" : "border-dark-border bg-dark hover:border-gold"}`}>
                         <div className="flex items-center gap-3">
@@ -215,7 +210,7 @@ const router = useRouter();
                       <input type="text" placeholder="Tu nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold transition-colors" />
                     </div>
                     <div>
-                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Telefono</label>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Teléfono</label>
                       <input type="tel" placeholder="8888-8888" value={telefono} onChange={(e) => setTelefono(e.target.value)} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold transition-colors" />
                     </div>
                     <div>
@@ -230,7 +225,7 @@ const router = useRouter();
               <div className="flex justify-between mt-8">
                 {paso > 0 && (
                   <button onClick={() => setPaso(paso - 1)} className="btn-outline text-xs uppercase tracking-widest px-6 py-3">
-                    Atras
+                    Atrás
                   </button>
                 )}
                 {paso < 3 ? (
@@ -248,7 +243,7 @@ const router = useRouter();
 
             {/* Resumen */}
             <div className="bg-dark-card border border-dark-border rounded-lg p-6 h-fit">
-              <h3 className="text-gold font-bold text-xs tracking-[3px] uppercase mb-4">Tu seleccion</h3>
+              <h3 className="text-gold font-bold text-xs tracking-[3px] uppercase mb-4">Tu selección</h3>
               <div className="flex flex-col gap-3">
                 <div className="border-b border-dark-border pb-3">
                   <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Barbero</p>

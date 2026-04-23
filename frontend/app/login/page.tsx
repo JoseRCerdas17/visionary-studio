@@ -46,9 +46,10 @@ export default function Login() {
       <div className="bg-dark-card border border-dark-border rounded-lg p-8 w-full max-w-md">
 
         <div className="text-center mb-8">
-          <span className="text-white font-black text-2xl tracking-widest uppercase">
-            Noble<span className="text-gold">Cut</span>
-          </span>
+          <div>
+            <span className="text-white font-black text-2xl tracking-widest uppercase">Visionary Studio</span>
+            <span className="text-gold font-black text-2xl italic tracking-widest uppercase"> Barber Shop</span>
+          </div>
           <p className="text-gray-500 text-xs uppercase tracking-wider mt-2">
             Panel de Administración
           </p>
@@ -91,7 +92,7 @@ export default function Login() {
         </div>
 
         <p className="text-gray-600 text-xs text-center mt-6">
-          Solo personal autorizado de NobleCut
+          Solo personal autorizado de Visionary Studio
         </p>
 
       </div>
