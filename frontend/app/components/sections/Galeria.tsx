@@ -1,4 +1,13 @@
 export default function Galeria() {
+  const imagenesGaleria = [
+    { src: "/cliente1.jpeg", alt: "Interior de Visionary Studio" },
+    { src: "/cliente2.jpeg", alt: "Herramientas profesionales" },
+    { src: "/cliente6.jpeg", alt: "Resultado de corte" },
+    { src: "/cliente4.jpeg", alt: "Experiencia en barberia" },
+    { src: "/cliente5.jpeg", alt: "Detalle del espacio" },
+    { src: "/cliente3.jpeg", alt: "Ambiente premium" },
+  ];
+
   return (
     <section id="galeria" className="relative overflow-hidden">
 
@@ -25,33 +34,18 @@ export default function Galeria() {
             </p>
           </div>
 
-          {/* Grid asimétrico desktop */}
-          <div className="hidden md:grid grid-cols-3 grid-rows-2 gap-3 h-[520px]">
-            <div className="col-span-2 row-span-2 relative overflow-hidden rounded-lg group">
-              <img src="/cliente1.jpeg" alt="Interior de Visionary Studio" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-              <div className="absolute inset-0 bg-dark/20 group-hover:bg-dark/10 transition-all duration-300" />
-            </div>
-            <div className="relative overflow-hidden rounded-lg group">
-              <img src="/cliente4.jpeg" alt="Herramientas profesionales" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-              <div className="absolute inset-0 bg-dark/20 group-hover:bg-dark/10 transition-all duration-300" />
-            </div>
-            <div className="relative overflow-hidden rounded-lg group">
-              <img src="/cliente3.jpeg" alt="Resultado de corte" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-              <div className="absolute inset-0 bg-dark/20 group-hover:bg-dark/10 transition-all duration-300" />
-            </div>
-          </div>
-
-          {/* Grid móvil */}
-          <div className="md:hidden grid grid-cols-2 gap-3">
-            <div className="col-span-2 h-64 relative overflow-hidden rounded-lg">
-              <img src="/cliente1.jpeg" alt="Interior de Visionary Studio" className="w-full h-full object-cover" />
-            </div>
-            <div className="h-44 relative overflow-hidden rounded-lg">
-              <img src="/cliente4.jpeg" alt="Herramientas profesionales" className="w-full h-full object-cover" />
-            </div>
-            <div className="h-44 relative overflow-hidden rounded-lg">
-              <img src="/cliente3.jpeg" alt="Resultado de corte" className="w-full h-full object-cover" />
-            </div>
+          {/* Grid uniforme de 6 imagenes */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {imagenesGaleria.map((imagen, index) => (
+              <div key={`${imagen.src}-${index}`} className="relative overflow-hidden rounded-lg group aspect-4/5">
+                <img
+                  src={imagen.src}
+                  alt={imagen.alt}
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-dark/20 group-hover:bg-dark/10 transition-all duration-300" />
+              </div>
+            ))}
           </div>
 
           <div className="text-center mt-10">

@@ -36,7 +36,7 @@ export default function Hero() {
             <div className="flex items-center gap-3 mb-8">
               <div className="w-10 h-px bg-gold" />
               <p className="text-gray-400 text-xs tracking-[4px] uppercase">
-                Excelencia desde 2024
+                Excelencia desde 2021
               </p>
             </div>
 

@@ -15,4 +15,5 @@ class Reserva(Base):
     fecha = Column(String, nullable=False)
     hora = Column(String, nullable=False)
     estado = Column(String, default="pendiente")
+    metodo_pago = Column(String, nullable=True)
     creado_en = Column(DateTime, default=datetime.utcnow)

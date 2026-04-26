@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Calendar from "react-calendar";
 
@@ -19,12 +19,13 @@ const servicios = [
 ];
 
 const horarios = [
-  "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
+  "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM",
   "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM",
-  "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM",
+  "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM", "6:00 PM", "6:30 PM"
 ];
 
 const pasos = ["Barbero", "Servicio", "Fecha y Hora", "Confirmar"];
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function Reservar() {
   const [paso, setPaso] = useState(0);
@@ -32,9 +33,18 @@ export default function Reservar() {
   const [servicioSeleccionado, setServicioSeleccionado] = useState<number | null>(null);
   const [fechaSeleccionada, setFechaSeleccionada] = useState<Date | null>(null);
   const [horarioSeleccionado, setHorarioSeleccionado] = useState<string | null>(null);
-  const [nombre, setNombre] = useState("");
-  const [telefono, setTelefono] = useState("");
-  const [email, setEmail] = useState("");
+  const [horariosOcupados, setHorariosOcupados] = useState<string[]>([]);
+  useEffect(() => {
+    if (!fechaSeleccionada) return;
+    const fechaStr = fechaSeleccionada.toLocaleDateString("es-CR");
+    fetch(`${API}/reservas/ocupados?fecha=${fechaStr}`)
+      .then((res) => res.json())
+      .then((data) => setHorariosOcupados(Array.isArray(data) ? data : []))
+      .catch(() => setHorariosOcupados([]));
+  }, [fechaSeleccionada]);
+  const [nombre, setNombre] = useState(() => localStorage.getItem("cliente_nombre") || "");
+const [telefono, setTelefono] = useState(() => localStorage.getItem("cliente_telefono") || "");
+const [email, setEmail] = useState(() => localStorage.getItem("cliente_email") || "");
   const [cargando, setCargando] = useState(false);
 const [exito, setExito] = useState(false);
 const router = useRouter();
@@ -46,9 +56,12 @@ const router = useRouter();
       alert("Por favor completa todos los campos");
       return;
     }
+    localStorage.setItem("cliente_nombre", nombre);
+localStorage.setItem("cliente_telefono", telefono);
+localStorage.setItem("cliente_email", email);
     setCargando(true);
     try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/reservas/`, {
+        const response = await fetch(`${API}/reservas/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -62,11 +75,17 @@ const router = useRouter();
           hora: horarioSeleccionado || "",
         }),
       });
-      if (response.ok) {
-        setExito(true);
-      } else {
-        alert("Error al crear la reserva, intenta de nuevo");
+      if (!response.ok) {
+        const error = await response.json();
+        if (error.detail === "Ya existe una reserva para esa fecha y hora") {
+          alert("Ese horario ya está ocupado. Por favor selecciona otro.");
+          setPaso(1);
+        } else {
+          alert("Error al crear la reserva, intenta de nuevo");
+        }
+        return;
       }
+      setExito(true);
     } catch {
       alert("Error de conexión con el servidor");
     } finally {
@@ -185,15 +204,23 @@ const router = useRouter();
                   <h2 className="text-white font-bold text-xl mb-6">Elige fecha y hora</h2>
                   <div className="mb-6">
                     <label className="text-gray-500 text-xs uppercase tracking-wider mb-3 block">Fecha</label>
-                    <Calendar onChange={(value) => setFechaSeleccionada(value as Date)} value={fechaSeleccionada} minDate={new Date()} className="react-calendar-dark w-full" locale="es-ES" />
+                    <Calendar
+                    onChange={(value) => setFechaSeleccionada(value as Date)}
+                    value={fechaSeleccionada}
+                    minDate={new Date()}
+                    className="react-calendar-dark w-full"
+                    locale="es-ES"
+                    tileDisabled={({ date }) => date.getDay() === 0}
+                    tileClassName={({ date }) => date.getDay() === 0 ? "domingo-deshabilitado" : ""}
+                  />
                   </div>
                   <div className="mt-6">
                     <label className="text-gray-500 text-xs uppercase tracking-wider mb-3 block">Horario disponible</label>
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                       {horarios.map((h) => (
-                        <button key={h} onClick={() => setHorarioSeleccionado(h)} className={`py-2 px-3 rounded border text-xs font-bold transition-all duration-300 ${horarioSeleccionado === h ? "border-gold bg-gold text-black" : "border-dark-border text-gray-400 hover:border-gold hover:text-gold"}`}>
-                          {h}
-                        </button>
+                        <button key={h} onClick={() => !horariosOcupados.includes(h) && setHorarioSeleccionado(h)} disabled={horariosOcupados.includes(h)} className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all duration-300 ${horariosOcupados.includes(h) ? "border-dark-border text-gray-700 cursor-not-allowed line-through" : horarioSeleccionado === h ? "border-gold bg-gold text-black" : "border-dark-border text-gray-400 hover:border-gold hover:text-gold"}`}>
+                        {h}
+                      </button>
                       ))}
                     </div>
                   </div>

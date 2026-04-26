@@ -24,7 +24,7 @@ export default function Equipo() {
             {/* Foto */}
 <div className="relative w-100 aspect-square rounded-xl overflow-hidden border border-dark-border group">
   <Image
-    src="/lobo2.jpeg"
+    src="/lobo3.jpeg"
     alt="Alonso Lobo"
     fill
     className="object-cover transition-transform duration-500 group-hover:scale-105"

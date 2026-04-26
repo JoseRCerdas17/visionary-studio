@@ -108,3 +108,10 @@
   background-color: transparent !important;
   color: #444444 !important;
 }
+
+.domingo-deshabilitado {
+  color: #333333 !important;
+  text-decoration: line-through !important;
+  cursor: not-allowed !important;
+  opacity: 0.4 !important;
+}

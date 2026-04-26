@@ -96,6 +96,21 @@ export default function Footer() {
             </a>
           </div>
 
+
+          {/* Desarrollador */}
+<div className="border-t border-dark-border mt-8 pt-6 text-center">
+  <p className="text-gray-600 text-xs">
+    Desarrollado por{" "}
+    <a href="https://wa.me/50683439232" target="_blank" className="text-gold hover:text-gold-light transition-colors duration-300 font-bold">
+      Jose Cerdas Chaves
+    </a>
+    {" "}· +506 8343-9232 · ¿Necesitas una página web?{" "}
+    <a href="https://wa.me/50683439232" target="_blank" className="text-gold hover:text-gold-light transition-colors duration-300">
+      Contáctame
+    </a>
+  </p>
+</div>
+
         </div>
 
         {/* Línea separadora */}
