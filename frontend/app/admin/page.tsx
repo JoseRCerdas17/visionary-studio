@@ -81,6 +81,16 @@ export default function Admin() {
     setReservas(reservas.filter((r) => r.id !== id));
   };
 
+  const eliminarReserva = async (id: number) => {
+    if (!confirm("¿Estás seguro que deseas eliminar esta reserva permanentemente?")) return;
+    const token = localStorage.getItem("admin_token");
+    await fetch(`${API}/reservas/eliminar/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setReservas(reservas.filter((r) => r.id !== id));
+  };
+
   const cerrarSesion = () => { localStorage.removeItem("admin_token"); router.push("/login"); };
 
   const parsearPrecio = (precio: string) => parseInt(precio.replace(/[^0-9]/g, "")) || 0;
@@ -123,12 +133,17 @@ export default function Admin() {
   })();
 
   const reservasFiltradas = reservas
-    .filter((r) => filtro === "todas" ? true : r.estado === filtro)
-    .filter((r) => busqueda === "" ? true :
-      r.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-      r.telefono.includes(busqueda) ||
-      r.servicio.toLowerCase().includes(busqueda.toLowerCase())
-    );
+  .filter((r) => {
+    if (filtro === "cancelada") return r.estado === "cancelada";
+    if (filtro === "todas") return r.estado !== "cancelada";
+    return r.estado === filtro;
+  })
+  .filter((r) => busqueda === "" ? true :
+    r.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+    r.telefono.includes(busqueda) ||
+    r.servicio.toLowerCase().includes(busqueda.toLowerCase())
+  )
+  .slice(0, filtro === "cancelada" ? 5 : undefined);
 
   const pendientes = reservas.filter((r) => r.estado === "pendiente").length;
   const confirmadas = reservas.filter((r) => r.estado === "confirmada").length;
@@ -204,11 +219,11 @@ export default function Admin() {
       <div className="max-w-7xl mx-auto px-4 py-8">
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <div className="bg-dark-card border border-dark-border rounded-xl p-5">
-            <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Total Reservas</p>
-            <p className="text-white font-black text-3xl">{reservas.length}</p>
-          </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+              <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Total Reservas</p>
+              <p className="text-white font-black text-3xl">{pendientes + confirmadas}</p>
+            </div>
           <div className="bg-dark-card border border-gold rounded-xl p-5">
             <p className="text-gold text-xs uppercase tracking-wider mb-2">Pendientes</p>
             <p className="text-gold font-black text-3xl">{pendientes}</p>
@@ -359,6 +374,11 @@ export default function Admin() {
                     {reserva.estado !== "cancelada" && (
                       <button onClick={() => cancelarReserva(reserva.id)} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900 transition-all duration-300">
                         Cancelar
+                      </button>
+                    )}
+                    {reserva.estado === "cancelada" && (
+                      <button onClick={() => eliminarReserva(reserva.id)} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900 transition-all duration-300">
+                        Eliminar
                       </button>
                     )}
                   </div>

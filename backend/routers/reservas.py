@@ -129,3 +129,12 @@ def cancelar_reserva(reserva_id: int, db: Session = Depends(get_db)):
     reserva.estado = "cancelada"
     db.commit()
     return {"message": "Reserva cancelada"}
+
+@router.delete("/eliminar/{reserva_id}")
+def eliminar_reserva(reserva_id: int, db: Session = Depends(get_db)):
+    reserva = db.query(Reserva).filter(Reserva.id == reserva_id).first()
+    if not reserva:
+        raise HTTPException(status_code=404, detail="Reserva no encontrada")
+    db.delete(reserva)
+    db.commit()
+    return {"message": "Reserva eliminada"}
