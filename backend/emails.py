@@ -12,8 +12,8 @@ def enviar_confirmacion_cliente(nombre: str, email: str, servicio: str, precio: 
         cancelar_url = f"{frontend_url}/cancelar?id={reserva_id}"
 
         resend.Emails.send({
-            "from": "Visionary Studio <onboarding@resend.dev>",
-            "to": "jose12roberto17@gmail.com",
+            "from": "Visionary Studio <reservas@visionarystudiobarbershop.com>",
+            "to": email,
             "subject": f"Cita confirmada — Visionary Studio Barber Shop",
             "html": f"""
 <!DOCTYPE html>
