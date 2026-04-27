@@ -388,11 +388,14 @@ export default function Admin() {
                     <span className={`text-xs uppercase tracking-widest px-3 py-1 rounded-full text-center font-bold ${reserva.estado === "pendiente" ? "bg-gold text-black" : reserva.estado === "confirmada" ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300"}`}>
                       {reserva.estado}
                     </span>
-                    {reserva.estado === "pendiente" && (
-                      <button onClick={() => setModalReserva(reserva)} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-green-700 text-green-400 hover:bg-green-900 transition-all duration-300">
-                        Corte Realizado
-                      </button>
-                    )}
+                    <a href={`https://wa.me/506${reserva.telefono.replace(/[^0-9]/g, "")}`} target="_blank" className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-green-700 text-green-400 hover:bg-green-900 transition-all duration-300 text-center">
+                        WhatsApp
+                      </a>
+                      {reserva.estado === "pendiente" && (
+                        <button onClick={() => setModalReserva(reserva)} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-green-700 text-green-400 hover:bg-green-900 transition-all duration-300">
+                          Corte Realizado
+                        </button>
+                      )}
                     {reserva.estado !== "cancelada" && (
                       <button onClick={() => cancelarReserva(reserva.id)} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900 transition-all duration-300">
                         Cancelar

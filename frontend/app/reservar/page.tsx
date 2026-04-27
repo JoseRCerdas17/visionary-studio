@@ -281,7 +281,13 @@ setStoredValue("cliente_email", email);
                   </button>
                 )}
                 {paso < 3 ? (
-                  <button onClick={() => setPaso(paso + 1)} className="btn-gold text-xs uppercase tracking-widest px-6 py-3 ml-auto">
+                  <button onClick={() => {
+                    if (paso === 0 && !barberoSeleccionado) { alert("Por favor selecciona un barbero"); return; }
+                    if (paso === 1 && !servicioSeleccionado) { alert("Por favor selecciona un servicio"); return; }
+                    if (paso === 2 && !fechaSeleccionada) { alert("Por favor selecciona una fecha"); return; }
+                    if (paso === 2 && !horarioSeleccionado) { alert("Por favor selecciona un horario"); return; }
+                    setPaso(paso + 1);
+                  }} className="btn-gold text-xs uppercase tracking-widest px-6 py-3 ml-auto">
                     Continuar
                   </button>
                 ) : (
