@@ -174,6 +174,14 @@ export default function Admin() {
     return parsearFecha(a) - parsearFecha(b);
   });
 
+
+  const obtenerDiaSemana = (fecha: string) => {
+    const [dia, mes, anio] = fecha.split("/");
+    const date = new Date(parseInt(anio), parseInt(mes) - 1, parseInt(dia));
+    const dias = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+    return dias[date.getDay()];
+  };
+
   return (
     <div className="min-h-screen bg-dark">
 
@@ -373,7 +381,7 @@ export default function Admin() {
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Fecha y Hora</p>
-                    <p className="text-white font-bold">{reserva.fecha}</p>
+                    <p className="text-white font-bold">{obtenerDiaSemana(reserva.fecha)}, {reserva.fecha}</p>
                     <p className="text-gray-500 text-sm">{reserva.hora}</p>
                   </div>
                   <div className="flex flex-col gap-2">
@@ -422,8 +430,8 @@ export default function Admin() {
           <div className="flex items-center gap-3">
             {esHoy && <span className="w-2 h-2 rounded-full bg-gold animate-pulse" />}
             <p className={`font-bold text-sm uppercase tracking-wider ${esHoy ? "text-gold" : "text-white"}`}>
-              {esHoy ? "HOY — " : ""}{fecha}
-            </p>
+            {esHoy ? "HOY — " : ""}{obtenerDiaSemana(fecha)}, {fecha}
+          </p>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-gray-500 text-xs">{citasDelDia.length} cita{citasDelDia.length > 1 ? "s" : ""}</span>
