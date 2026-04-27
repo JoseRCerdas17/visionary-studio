@@ -143,6 +143,20 @@ export default function Admin() {
     r.telefono.includes(busqueda) ||
     r.servicio.toLowerCase().includes(busqueda.toLowerCase())
   )
+  .sort((a, b) => {
+    const parsearFecha = (fecha: string, hora: string) => {
+      const [dia, mes, anio] = fecha.split("/");
+      const partes = hora.split(" ");
+      const tiempo = partes[0].split(":");
+      let h = parseInt(tiempo[0]);
+      const m = parseInt(tiempo[1]);
+      if (partes[1] === "PM" && h !== 12) h += 12;
+      if (partes[1] === "AM" && h === 12) h = 0;
+      return new Date(parseInt(anio), parseInt(mes) - 1, parseInt(dia), h, m).getTime();
+    };
+    return parsearFecha(a.fecha, a.hora) - parsearFecha(b.fecha, b.hora);
+  })
+  
   .slice(0, filtro === "cancelada" ? 5 : undefined);
 
   const pendientes = reservas.filter((r) => r.estado === "pendiente").length;
