@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -30,6 +30,12 @@ const PERIODOS_INGRESOS = [
   { id: "mes", label: "Este mes" },
 ] as const;
 
+const HORARIOS = [
+  "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM",
+  "1:00 PM", "1:30 PM", "2:00 PM", "3:00 PM", "3:30 PM",
+  "4:30 PM", "5:00 PM", "5:30 PM", "6:00 PM", "6:30 PM",
+];
+
 export default function Admin() {
   const [reservas, setReservas] = useState<Reserva[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -39,11 +45,21 @@ export default function Admin() {
   const [modalReserva, setModalReserva] = useState<Reserva | null>(null);
   const [metodoPago, setMetodoPago] = useState<"sinpe" | "efectivo" | null>(null);
   const [periodoIngresos, setPeriodoIngresos] = useState<"dia" | "semana" | "mes">("dia");
+  const [procesandoHorario, setProcesandoHorario] = useState<string | null>(null);
+  const [procesandoMasivo, setProcesandoMasivo] = useState<"bloquear" | "desbloquear" | null>(null);
   const router = useRouter();
   const [fechaCalendarioAdmin, setFechaCalendarioAdmin] = useState<string>("");
   const [mesCalendario, setMesCalendario] = useState(new Date());
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  const cargarReservas = useCallback(async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    const res = await fetch(`${API}/reservas/`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    setReservas(Array.isArray(data) ? data : []);
+  }, [API]);
 
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
@@ -53,13 +69,10 @@ export default function Admin() {
   }, [API, router]);
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    if (!token) return;
-    fetch(`${API}/reservas/`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => res.json())
-      .then((data) => { setReservas(data); setCargando(false); })
-      .catch(() => setCargando(false));
-  }, [API]);
+    cargarReservas()
+      .catch(() => undefined)
+      .finally(() => setCargando(false));
+  }, [cargarReservas]);
 
   const confirmarPago = async () => {
     if (!modalReserva || !metodoPago) return;
@@ -95,12 +108,108 @@ export default function Admin() {
 
   const cerrarSesion = () => { localStorage.removeItem("admin_token"); router.push("/login"); };
 
+  const bloquearHorario = async (hora: string) => {
+    if (!fechaCalendarioAdmin) return;
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    setProcesandoHorario(hora);
+    try {
+      const res = await fetch(`${API}/reservas/bloqueos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ fecha: fechaCalendarioAdmin, hora }),
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => null);
+        alert(error?.detail || "No se pudo bloquear el horario");
+        return;
+      }
+      const nuevoBloqueo = await res.json();
+      setReservas((prev) => [...prev, nuevoBloqueo]);
+    } finally {
+      setProcesandoHorario(null);
+    }
+  };
+
+  const desbloquearHorario = async (hora: string) => {
+    if (!fechaCalendarioAdmin) return;
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    setProcesandoHorario(hora);
+    try {
+      const res = await fetch(`${API}/reservas/bloqueos?fecha=${encodeURIComponent(fechaCalendarioAdmin)}&hora=${encodeURIComponent(hora)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => null);
+        alert(error?.detail || "No se pudo desbloquear el horario");
+        return;
+      }
+      setReservas((prev) => prev.filter((r) => !(r.fecha === fechaCalendarioAdmin && r.hora === hora && r.estado === "bloqueado")));
+    } finally {
+      setProcesandoHorario(null);
+    }
+  };
+
+  const bloquearDiaCompleto = async () => {
+    if (!fechaCalendarioAdmin) return;
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    const horasDisponibles = HORARIOS.filter(
+      (hora) => !horariosReservadosDelDia.has(hora) && !horariosBloqueadosDelDia.has(hora),
+    );
+    if (horasDisponibles.length === 0) return;
+    setProcesandoMasivo("bloquear");
+    try {
+      await Promise.all(
+        horasDisponibles.map((hora) =>
+          fetch(`${API}/reservas/bloqueos`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ fecha: fechaCalendarioAdmin, hora }),
+          }),
+        ),
+      );
+      await cargarReservas();
+    } catch {
+      alert("No se pudo bloquear todo el día");
+    } finally {
+      setProcesandoMasivo(null);
+    }
+  };
+
+  const desbloquearDiaCompleto = async () => {
+    if (!fechaCalendarioAdmin) return;
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    const horasBloqueadas = HORARIOS.filter((hora) => horariosBloqueadosDelDia.has(hora));
+    if (horasBloqueadas.length === 0) return;
+    setProcesandoMasivo("desbloquear");
+    try {
+      await Promise.all(
+        horasBloqueadas.map((hora) =>
+          fetch(`${API}/reservas/bloqueos?fecha=${encodeURIComponent(fechaCalendarioAdmin)}&hora=${encodeURIComponent(hora)}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ),
+      );
+      await cargarReservas();
+    } catch {
+      alert("No se pudo desbloquear todo el día");
+    } finally {
+      setProcesandoMasivo(null);
+    }
+  };
+
   const parsearPrecio = (precio: string) => parseInt(precio.replace(/[^0-9]/g, "")) || 0;
 
   const hoy = new Date();
   const fechaHoy = `${hoy.getDate()}/${hoy.getMonth() + 1}/${hoy.getFullYear()}`;
 
-  const reservasConfirmadas = reservas.filter((r) => r.estado === "confirmada");
+  const reservasActivas = reservas.filter((r) => r.estado !== "cancelada" && r.estado !== "bloqueado");
+  const reservasConfirmadas = reservasActivas.filter((r) => r.estado === "confirmada");
 
   const ingresosHoy = reservasConfirmadas
     .filter((r) => r.fecha === fechaHoy)
@@ -134,7 +243,7 @@ export default function Admin() {
       .reduce((t, r) => t + parsearPrecio(r.precio), 0);
   })();
 
-  const reservasFiltradas = reservas
+  const reservasFiltradas = reservasActivas
   .filter((r) => {
     if (filtro === "cancelada") return r.estado === "cancelada";
     if (filtro === "todas") return r.estado !== "cancelada";
@@ -161,28 +270,28 @@ export default function Admin() {
   
   .slice(0, filtro === "cancelada" ? 5 : undefined);
 
-  const pendientes = reservas.filter((r) => r.estado === "pendiente").length;
-  const confirmadas = reservas.filter((r) => r.estado === "confirmada").length;
+  const pendientes = reservasActivas.filter((r) => r.estado === "pendiente").length;
+  const confirmadas = reservasActivas.filter((r) => r.estado === "confirmada").length;
   const canceladas = reservas.filter((r) => r.estado === "cancelada").length;
-  const fechasUnicas = [...new Set(
-    reservas
-      .filter((r) => r.estado !== "cancelada")
-      .map((r) => r.fecha)
-  )].sort((a, b) => {
-    const parsearFecha = (f: string) => {
-      const [dia, mes, anio] = f.split("/");
-      return new Date(parseInt(anio), parseInt(mes) - 1, parseInt(dia)).getTime();
-    };
-    return parsearFecha(a) - parsearFecha(b);
-  });
-
-
   const obtenerDiaSemana = (fecha: string) => {
     const [dia, mes, anio] = fecha.split("/");
     const date = new Date(parseInt(anio), parseInt(mes) - 1, parseInt(dia));
     const dias = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
     return dias[date.getDay()];
   };
+
+  const reservasDelDia = reservas.filter((r) => r.fecha === fechaCalendarioAdmin && r.estado !== "cancelada" && r.estado !== "bloqueado");
+  const horariosBloqueadosDelDia = new Set(
+    reservas
+      .filter((r) => r.fecha === fechaCalendarioAdmin && r.estado === "bloqueado")
+      .map((r) => r.hora),
+  );
+  const horariosReservadosDelDia = new Set(
+    reservasDelDia.map((r) => r.hora),
+  );
+  const horariosDisponiblesParaBloquear = HORARIOS.filter(
+    (hora) => !horariosReservadosDelDia.has(hora) && !horariosBloqueadosDelDia.has(hora),
+  );
 
   return (
     <div className="min-h-screen bg-dark">
@@ -443,7 +552,7 @@ export default function Admin() {
         const dias = Array.from({ length: ultimoDia.getDate() }, (_, i) => i + 1);
         const fechasConReservas = new Set(
           reservas
-            .filter((r) => r.estado !== "cancelada")
+            .filter((r) => r.estado !== "cancelada" && r.estado !== "bloqueado")
             .map((r) => r.fecha)
         );
 
@@ -486,12 +595,11 @@ export default function Admin() {
           {obtenerDiaSemana(fechaCalendarioAdmin)}, {fechaCalendarioAdmin}
         </p>
         <p className="text-gray-500 text-xs">
-          {reservas.filter((r) => r.fecha === fechaCalendarioAdmin && r.estado !== "cancelada").length} citas
+          {reservasDelDia.length} citas
         </p>
       </div>
       <div className="divide-y divide-dark-border">
-        {reservas
-          .filter((r) => r.fecha === fechaCalendarioAdmin && r.estado !== "cancelada")
+        {reservasDelDia
           .sort((a, b) => a.hora.localeCompare(b.hora))
           .map((reserva) => (
             <div key={reserva.id} className="px-6 py-4 flex items-center justify-between gap-4">
@@ -521,12 +629,63 @@ export default function Admin() {
               </div>
             </div>
           ))}
-        {reservas.filter((r) => r.fecha === fechaCalendarioAdmin && r.estado !== "cancelada").length === 0 && (
+        {reservasDelDia.length === 0 && (
           <div className="px-6 py-8 text-center">
             <p className="text-gray-500 text-sm">No hay citas para este día</p>
           </div>
         )}
       </div>
+    </div>
+  )}
+
+  {fechaCalendarioAdmin && (
+    <div className="bg-dark-card border border-dark-border rounded-xl p-6">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <p className="text-gold font-bold text-sm uppercase tracking-wider">Bloquear / desbloquear horarios</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-gray-500 text-xs">{horariosBloqueadosDelDia.size} bloqueados</p>
+          <button
+            onClick={bloquearDiaCompleto}
+            disabled={procesandoMasivo !== null || horariosDisponiblesParaBloquear.length === 0}
+            className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-dark-border text-gray-400 hover:border-gold hover:text-gold disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {procesandoMasivo === "bloquear" ? "Bloqueando..." : "Bloquear día"}
+          </button>
+          <button
+            onClick={desbloquearDiaCompleto}
+            disabled={procesandoMasivo !== null || horariosBloqueadosDelDia.size === 0}
+            className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {procesandoMasivo === "desbloquear" ? "Liberando..." : "Desbloquear día"}
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+        {HORARIOS.map((hora) => {
+          const ocupado = horariosReservadosDelDia.has(hora);
+          const bloqueado = horariosBloqueadosDelDia.has(hora);
+          const cargando = procesandoHorario === hora;
+          return (
+            <button
+              key={hora}
+              disabled={ocupado || cargando}
+              onClick={() => (bloqueado ? desbloquearHorario(hora) : bloquearHorario(hora))}
+              className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all duration-300 ${
+                ocupado
+                  ? "border-dark-border text-gray-700 cursor-not-allowed line-through"
+                  : bloqueado
+                  ? "border-red-700 text-red-300 bg-red-950/40 hover:bg-red-900/60"
+                  : "border-dark-border text-gray-400 hover:border-gold hover:text-gold"
+              }`}
+            >
+              {cargando ? "..." : hora}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-gray-600 text-xs mt-3">
+        Los horarios con cita no se pueden bloquear. Pulsa un horario bloqueado para liberarlo.
+      </p>
     </div>
   )}
 </div>

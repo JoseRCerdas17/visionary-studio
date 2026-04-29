@@ -62,8 +62,12 @@ export default function Contacto() {
           <span className="hidden sm:inline text-dark-border">|</span>
           <span>Domingo: Cerrado</span>
           <span className="hidden sm:inline text-dark-border">|</span>
-          <a href="https://maps.app.goo.gl/zcfrCQAJDv4KLDfb9" target="_blank" className="hover:text-gold transition-colors duration-300">
-  📍 Liberia, Guanacaste, Costa Rica
+          <a href="https://maps.app.goo.gl/zcfrCQAJDv4KLDfb9" target="_blank" className="flex items-center gap-3 hover:text-gold transition-colors duration-300">
+  <span>📍</span>
+  <div>
+    <p className="text-white font-bold text-sm">Liberia, Guanacaste, Costa Rica</p>
+    <p className="text-gold text-xs tracking-wider">Ver en Google Maps →</p>
+  </div>
 </a>
         </div>
 

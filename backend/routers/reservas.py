@@ -1,11 +1,12 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from emails import enviar_confirmacion_cliente
 from sqlalchemy.orm import Session
 from database.connection import get_db
 from models.reserva import Reserva
 from pydantic import BaseModel
+from routers.auth import get_admin_actual
 
 router = APIRouter(prefix="/reservas", tags=["reservas"])
 logger = logging.getLogger(__name__)
@@ -34,6 +35,11 @@ class ReservaResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class BloqueoHorarioCreate(BaseModel):
+    fecha: str
+    hora: str
 
 @router.post("/", response_model=ReservaResponse)
 def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
@@ -81,6 +87,61 @@ def obtener_horarios_ocupados(fecha: str, db: Session = Depends(get_db)):
         Reserva.estado != "cancelada"
     ).all()
     return [r.hora for r in reservas]
+
+
+@router.post("/bloqueos", response_model=ReservaResponse)
+def bloquear_horario(
+    bloqueo: BloqueoHorarioCreate,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_admin_actual),
+):
+    reserva_existente = db.query(Reserva).filter(
+        Reserva.fecha == bloqueo.fecha,
+        Reserva.hora == bloqueo.hora,
+        Reserva.estado != "cancelada",
+    ).first()
+
+    if reserva_existente:
+        raise HTTPException(
+            status_code=400,
+            detail="Ese horario ya está ocupado o bloqueado",
+        )
+
+    nuevo_bloqueo = Reserva(
+        nombre="Horario bloqueado",
+        telefono="-",
+        email="admin@visionary.local",
+        barbero="Alonso Lobo",
+        servicio="Horario bloqueado por admin",
+        precio="₡0",
+        fecha=bloqueo.fecha,
+        hora=bloqueo.hora,
+        estado="bloqueado",
+        metodo_pago=None,
+    )
+    db.add(nuevo_bloqueo)
+    db.commit()
+    db.refresh(nuevo_bloqueo)
+    return nuevo_bloqueo
+
+
+@router.delete("/bloqueos")
+def desbloquear_horario(
+    fecha: str = Query(...),
+    hora: str = Query(...),
+    db: Session = Depends(get_db),
+    _: str = Depends(get_admin_actual),
+):
+    bloqueo = db.query(Reserva).filter(
+        Reserva.fecha == fecha,
+        Reserva.hora == hora,
+        Reserva.estado == "bloqueado",
+    ).first()
+    if not bloqueo:
+        raise HTTPException(status_code=404, detail="Bloqueo no encontrado")
+    db.delete(bloqueo)
+    db.commit()
+    return {"message": "Horario desbloqueado"}
 
 @router.get("/{reserva_id}")
 def obtener_reserva(reserva_id: int, db: Session = Depends(get_db)):
