@@ -24,7 +24,7 @@ const horarios = [
  "4:30 PM", "5:00 PM", "5:30 PM", "6:00 PM", "6:30 PM"
 ];
 
-const pasos = ["Barbero", "Servicio", "Fecha y Hora", "Confirmar"];
+const pasos = [ "Servicio", "Fecha y Hora", "Confirmar"];
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function startOfDay(date: Date) {
@@ -45,7 +45,7 @@ function setStoredValue(key: string, value: string) {
 
 export default function Reservar() {
   const [paso, setPaso] = useState(0);
-  const [barberoSeleccionado, setBarberoSeleccionado] = useState<number | null>(null);
+  const [barberoSeleccionado] = useState<number>(1);
   const [servicioSeleccionado, setServicioSeleccionado] = useState<number | null>(null);
   const [fechaSeleccionada, setFechaSeleccionada] = useState<Date | null>(null);
   const [horarioSeleccionado, setHorarioSeleccionado] = useState<string | null>(null);
@@ -206,30 +206,11 @@ setStoredValue("cliente_email", email);
             {/* Contenido principal */}
             <div className="lg:col-span-2 bg-dark-card border border-dark-border rounded-lg p-6">
 
-              {/* Paso 1 - Barbero */}
-              {paso === 0 && (
-                <div>
-                  <h2 className="text-white font-bold text-xl mb-6">Elige tu barbero</h2>
-                  <div className="flex flex-col gap-4">
-                    {barberos.map((b) => (
-                      <button key={b.id} onClick={() => setBarberoSeleccionado(b.id)} className={`p-4 rounded-lg border text-left transition-all duration-300 ${barberoSeleccionado === b.id ? "border-gold bg-dark" : "border-dark-border bg-dark hover:border-gold"}`}>
-                        <div className="flex items-center gap-3">
-                          <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center font-black text-sm ${barberoSeleccionado === b.id ? "border-gold bg-gold text-black" : "border-dark-border text-gold"}`}>
-                            {b.iniciales}
-                          </div>
-                          <div>
-                            <p className="text-white font-bold text-sm">{b.nombre}</p>
-                            <p className="text-gray-500 text-xs">{b.especialidad}</p>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+
+              
 
               {/* Paso 2 - Servicio */}
-              {paso === 1 && (
+              {paso === 0 && (
                 <div>
                   <h2 className="text-white font-bold text-xl mb-6">Elige un servicio</h2>
                   <div className="flex flex-col gap-4">
@@ -247,7 +228,7 @@ setStoredValue("cliente_email", email);
               )}
 
              {/* Paso 3 - Fecha y hora */}
-             {paso === 2 && (
+             {paso === 1 && (
                 <div>
                   <h2 className="text-white font-bold text-xl mb-6">Elige fecha y hora</h2>
                   <div className="mb-6">
@@ -256,11 +237,14 @@ setStoredValue("cliente_email", email);
                     onChange={(value) => setFechaSeleccionada(value as Date)}
                     value={fechaSeleccionada}
                     minDate={hoy}
-                    maxDate={limiteSemana}
                     className="react-calendar-dark w-full"
                     locale="es-ES"
                     tileDisabled={({ date }) => fechaDeshabilitada(date)}
                     tileClassName={({ date }) => fechaDeshabilitada(date) ? "domingo-deshabilitado" : ""}
+                    nextLabel="→"
+                    prevLabel="←"
+                    next2Label={null}
+                    prev2Label={null}
                   />
                   </div>
                   <div className="mt-6">
@@ -288,7 +272,7 @@ setStoredValue("cliente_email", email);
               )}
 
               {/* Paso 4 - Confirmar */}
-              {paso === 3 && (
+              {paso === 2 && (
                 <div>
                   <h2 className="text-white font-bold text-xl mb-6">Tus datos</h2>
                   <div className="flex flex-col gap-4">
@@ -315,12 +299,11 @@ setStoredValue("cliente_email", email);
                     Atrás
                   </button>
                 )}
-                {paso < 3 ? (
+                {paso < 2 ? (
                   <button onClick={() => {
-                    if (paso === 0 && !barberoSeleccionado) { alert("Por favor selecciona un barbero"); return; }
-                    if (paso === 1 && !servicioSeleccionado) { alert("Por favor selecciona un servicio"); return; }
-                    if (paso === 2 && !fechaSeleccionada) { alert("Por favor selecciona una fecha"); return; }
-                    if (paso === 2 && !horarioSeleccionado) { alert("Por favor selecciona un horario"); return; }
+                    if (paso === 0 && !servicioSeleccionado) { alert("Por favor selecciona un servicio"); return; }
+                    if (paso === 1 && !fechaSeleccionada) { alert("Por favor selecciona una fecha"); return; }
+                    if (paso === 1 && !horarioSeleccionado) { alert("Por favor selecciona un horario"); return; }
                     setPaso(paso + 1);
                   }} className="btn-gold text-xs uppercase tracking-widest px-6 py-3 ml-auto">
                     Continuar

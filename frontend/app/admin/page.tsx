@@ -40,6 +40,8 @@ export default function Admin() {
   const [metodoPago, setMetodoPago] = useState<"sinpe" | "efectivo" | null>(null);
   const [periodoIngresos, setPeriodoIngresos] = useState<"dia" | "semana" | "mes">("dia");
   const router = useRouter();
+  const [fechaCalendarioAdmin, setFechaCalendarioAdmin] = useState<string>("");
+  const [mesCalendario, setMesCalendario] = useState(new Date());
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -416,78 +418,117 @@ export default function Admin() {
 
           
           /* Vista Calendario */
-<div className="flex flex-col gap-4">
-  {fechasUnicas.length === 0 ? (
-    <div className="text-center py-20 bg-dark-card border border-dark-border rounded-xl">
-      <p className="text-gray-500">No hay reservas agendadas</p>
+<div className="flex flex-col gap-6">
+  <div className="bg-dark-card border border-dark-border rounded-xl p-6">
+  <div className="flex items-center justify-between mb-4">
+  <button onClick={() => setMesCalendario(new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() - 1, 1))} className="text-gold hover:text-white transition-colors px-2 py-1 text-lg">
+    ←
+  </button>
+  <p className="text-gold text-xs tracking-[3px] uppercase">
+    {mesCalendario.toLocaleDateString("es-CR", { month: "long", year: "numeric" })}
+  </p>
+  <button onClick={() => setMesCalendario(new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() + 1, 1))} className="text-gold hover:text-white transition-colors px-2 py-1 text-lg">
+    →
+  </button>
+</div>
+    <div className="grid grid-cols-7 gap-1 mb-4">
+      {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((d) => (
+        <p key={d} className="text-gray-600 text-xs text-center uppercase tracking-wider py-2">{d}</p>
+      ))}
+      {(() => {
+       const hoyDate = new Date();
+       const primerDia = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth(), 1);
+       const ultimoDia = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() + 1, 0);
+        const diasVacios = Array(primerDia.getDay()).fill(null);
+        const dias = Array.from({ length: ultimoDia.getDate() }, (_, i) => i + 1);
+        const fechasConReservas = new Set(
+          reservas
+            .filter((r) => r.estado !== "cancelada")
+            .map((r) => r.fecha)
+        );
+
+        return [...diasVacios, ...dias].map((dia, idx) => {
+          if (!dia) return <div key={`empty-${idx}`} />;
+          const fechaStr = `${dia}/${mesCalendario.getMonth() + 1}/${mesCalendario.getFullYear()}`;
+          const tieneReservas = fechasConReservas.has(fechaStr);
+          const esSeleccionada = fechaCalendarioAdmin === fechaStr;
+          const esHoyAdmin = dia === hoyDate.getDate() && mesCalendario.getMonth() === hoyDate.getMonth() && mesCalendario.getFullYear() === hoyDate.getFullYear();
+
+          return (
+            <button
+              key={dia}
+              onClick={() => setFechaCalendarioAdmin(fechaStr)}
+              className={`aspect-square rounded-lg text-xs font-bold transition-all duration-300 relative ${
+                esSeleccionada
+                  ? "bg-gold text-black"
+                  : esHoyAdmin
+                  ? "border border-gold text-gold"
+                  : tieneReservas
+                  ? "bg-dark-surface text-white hover:border-gold border border-dark-border"
+                  : "text-gray-600 hover:text-gray-400"
+              }`}
+            >
+              {dia}
+              {tieneReservas && !esSeleccionada && (
+                <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-gold" />
+              )}
+            </button>
+          );
+        });
+      })()}
     </div>
-  ) : fechasUnicas.map((fecha) => {
-    const citasDelDia = reservas.filter((r) => r.fecha === fecha && r.estado !== "cancelada");
-    if (citasDelDia.length === 0) return null;
-    const esHoy = fecha === fechaHoy;
-    return (
-      <div key={fecha} className={`bg-dark-card rounded-xl overflow-hidden border ${esHoy ? "border-gold" : "border-dark-border"}`}>
+  </div>
 
-        {/* Header del día */}
-        <div className={`px-6 py-4 flex items-center justify-between border-b border-dark-border ${esHoy ? "bg-gold/10" : "bg-dark-surface"}`}>
-          <div className="flex items-center gap-3">
-            {esHoy && <span className="w-2 h-2 rounded-full bg-gold animate-pulse" />}
-            <p className={`font-bold text-sm uppercase tracking-wider ${esHoy ? "text-gold" : "text-white"}`}>
-            {esHoy ? "HOY — " : ""}{obtenerDiaSemana(fecha)}, {fecha}
-          </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-gray-500 text-xs">{citasDelDia.length} cita{citasDelDia.length > 1 ? "s" : ""}</span>
-            <span className="text-gold text-xs font-bold">
-              ₡{citasDelDia.filter((r) => r.estado === "confirmada").reduce((t, r) => t + parsearPrecio(r.precio), 0).toLocaleString("es-CR")}
-            </span>
-          </div>
-        </div>
-
-        {/* Timeline del día */}
-        <div className="divide-y divide-dark-border">
-          {citasDelDia.sort((a, b) => a.hora.localeCompare(b.hora)).map((reserva) => (
-            <div key={reserva.id} className="px-6 py-4 flex items-center gap-4">
-
-              {/* Hora */}
-              <div className="w-16 shrink-0 text-center">
-                <p className="text-gold font-black text-sm">{reserva.hora.split(" ")[0]}</p>
-                <p className="text-gray-600 text-xs">{reserva.hora.split(" ")[1]}</p>
-              </div>
-
-              {/* Línea vertical */}
-              <div className={`w-px h-10 shrink-0 ${reserva.estado === "confirmada" ? "bg-green-700" : "bg-gold/40"}`} />
-
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <p className="text-white font-bold text-sm truncate">{reserva.nombre}</p>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold shrink-0 ${reserva.estado === "confirmada" ? "bg-green-900 text-green-300" : "bg-gold/20 text-gold"}`}>
-                    {reserva.estado}
-                  </span>
+  {fechaCalendarioAdmin && (
+    <div className="bg-dark-card border border-dark-border rounded-xl overflow-hidden">
+      <div className="bg-dark-surface px-6 py-4 flex items-center justify-between border-b border-dark-border">
+        <p className="text-gold font-bold text-sm uppercase tracking-wider">
+          {obtenerDiaSemana(fechaCalendarioAdmin)}, {fechaCalendarioAdmin}
+        </p>
+        <p className="text-gray-500 text-xs">
+          {reservas.filter((r) => r.fecha === fechaCalendarioAdmin && r.estado !== "cancelada").length} citas
+        </p>
+      </div>
+      <div className="divide-y divide-dark-border">
+        {reservas
+          .filter((r) => r.fecha === fechaCalendarioAdmin && r.estado !== "cancelada")
+          .sort((a, b) => a.hora.localeCompare(b.hora))
+          .map((reserva) => (
+            <div key={reserva.id} className="px-6 py-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <p className="text-gold font-bold text-sm w-20 shrink-0">{reserva.hora}</p>
+                <div>
+                  <p className="text-white font-bold text-sm">{reserva.nombre}</p>
+                  <p className="text-gray-500 text-xs">{reserva.servicio} · {reserva.precio}</p>
+                  {reserva.metodo_pago && <p className="text-gray-600 text-xs capitalize">Pago: {reserva.metodo_pago}</p>}
                 </div>
-                <p className="text-gray-500 text-xs truncate">{reserva.servicio} · <span className="text-gold">{reserva.precio}</span></p>
-                {reserva.metodo_pago && <p className="text-gray-600 text-xs capitalize mt-0.5">Pago: {reserva.metodo_pago}</p>}
               </div>
-
-              {/* Acciones */}
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-3 py-1 rounded-full font-bold ${reserva.estado === "pendiente" ? "bg-gold text-black" : "bg-green-900 text-green-300"}`}>
+                  {reserva.estado}
+                </span>
+                <a href={`https://wa.me/506${reserva.telefono.replace(/[^0-9]/g, "")}`} target="_blank" className="text-xs px-3 py-1 rounded-full border border-green-700 text-green-400 hover:bg-green-900 transition-all">
+                  WA
+                </a>
                 {reserva.estado === "pendiente" && (
-                  <button onClick={() => setModalReserva(reserva)} className="text-xs px-3 py-1.5 rounded-lg border border-green-700 text-green-400 hover:bg-green-900 transition-all">
-                    Realizado ✓
+                  <button onClick={() => setModalReserva(reserva)} className="text-xs px-3 py-1 rounded-full border border-green-700 text-green-400 hover:bg-green-900 transition-all">
+                    ✓
                   </button>
                 )}
-                <button onClick={() => cancelarReserva(reserva.id)} className="text-xs px-3 py-1.5 rounded-lg border border-red-800 text-red-400 hover:bg-red-900 transition-all">
+                <button onClick={() => cancelarReserva(reserva.id)} className="text-xs px-3 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900 transition-all">
                   ✕
                 </button>
               </div>
-
             </div>
           ))}
-        </div>
+        {reservas.filter((r) => r.fecha === fechaCalendarioAdmin && r.estado !== "cancelada").length === 0 && (
+          <div className="px-6 py-8 text-center">
+            <p className="text-gray-500 text-sm">No hay citas para este día</p>
+          </div>
+        )}
       </div>
-    );
-  })}
+    </div>
+  )}
 </div>
         )}
       </div>

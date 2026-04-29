@@ -26,7 +26,7 @@ export default function Hero() {
             alt="Barbería Evolution X"
             className="w-full h-full object-cover opacity-40"
           />
-          <div className="absolute inset-0 bg-dark/80" />
+          <div className="absolute inset-0 bg-dark/30" />
         </div>
 
         <div className="max-w-7xl mx-auto px-4 md:px-8 lg:px-16 w-full relative z-10 py-16">
