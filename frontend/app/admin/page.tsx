@@ -43,13 +43,20 @@ export default function Admin() {
   const [busqueda, setBusqueda] = useState("");
   const [vista, setVista] = useState<"lista" | "calendario" | "ingresos">("lista");
   const [modalReserva, setModalReserva] = useState<Reserva | null>(null);
-  const [metodoPago, setMetodoPago] = useState<"sinpe" | "efectivo" | null>(null);
+  const [metodoPago, setMetodoPago] = useState<"sinpe" | "efectivo" | "mixto" | null>(null);
+  const [montoPagoMetodo, setMontoPagoMetodo] = useState<string>("");
+  const [tienePropina, setTienePropina] = useState<boolean>(false);
+  const [montoPropina, setMontoPropina] = useState<string>("");
+  const [tieneDolares, setTieneDolares] = useState<boolean>(false);
+  const [montoDolares, setMontoDolares] = useState<string>("");
+  const [montoMixtoEfectivo, setMontoMixtoEfectivo] = useState<string>("");
   const [periodoIngresos, setPeriodoIngresos] = useState<"dia" | "semana" | "mes">("dia");
   const [procesandoHorario, setProcesandoHorario] = useState<string | null>(null);
   const [procesandoMasivo, setProcesandoMasivo] = useState<"bloquear" | "desbloquear" | null>(null);
   const router = useRouter();
   const [fechaCalendarioAdmin, setFechaCalendarioAdmin] = useState<string>("");
   const [mesCalendario, setMesCalendario] = useState(new Date());
+  const [tipoCambio, setTipoCambio] = useState<number>(520);
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -74,17 +81,99 @@ export default function Admin() {
       .finally(() => setCargando(false));
   }, [cargarReservas]);
 
+  useEffect(() => {
+    if (!modalReserva) return;
+    setMetodoPago(null);
+    setMontoPagoMetodo("");
+    setMontoMixtoEfectivo("");
+    setTienePropina(false);
+    setMontoPropina("");
+    setTieneDolares(false);
+    setMontoDolares("");
+  }, [modalReserva]);
+
+
+  useEffect(() => {
+    fetch("https://api.exchangerate-api.com/v4/latest/USD")
+      .then((res) => res.json())
+      .then((data) => {
+        const crc = data.rates?.CRC;
+        if (crc) setTipoCambio(crc);
+      })
+      .catch(() => setTipoCambio(520));
+  }, []);
+
   const confirmarPago = async () => {
     if (!modalReserva || !metodoPago) return;
+
+    let detallePago: Record<string, unknown>;
+
+    if (metodoPago === "mixto") {
+      const montoSinpe = parsearPrecio(montoPagoMetodo);
+      const montoEfectivo = parsearPrecio(montoMixtoEfectivo);
+      if (montoSinpe <= 0 && montoEfectivo <= 0) {
+        alert("Ingresa al menos un monto para SINPE o Efectivo.");
+        return;
+      }
+      detallePago = { tipo: "mixto", montoSinpe: montoSinpe, montoEfectivo: montoEfectivo, monto: montoSinpe + montoEfectivo };
+    } else if (tieneDolares) {
+      const montoUSDNumero = montoDolares.trim().length ? parseMontoUSD(montoDolares) : 0;
+      if (montoUSDNumero <= 0) {
+        alert("Ingresa el monto en dólares.");
+        return;
+      }
+      const montoPropinaNumero = tienePropina && montoPropina.trim().length ? parsearPrecio(montoPropina) : null;
+      if (tienePropina && (montoPropinaNumero === null || montoPropinaNumero <= 0)) {
+        alert("Ingresa el monto de la propina.");
+        return;
+      }
+      detallePago = {
+        tipo: metodoPago,
+        monto: null,
+        propina: montoPropinaNumero !== null ? { monto: montoPropinaNumero } : null,
+        dolares: { monto: montoUSDNumero },
+      };
+    } else {
+      const montoMetodo = montoPagoMetodo.trim().length ? parsearPrecio(montoPagoMetodo) : null;
+      if (montoMetodo === null || montoMetodo <= 0) {
+        alert("Ingresa el monto recibido.");
+        return;
+      }
+      const montoPropinaNumero = tienePropina && montoPropina.trim().length ? parsearPrecio(montoPropina) : null;
+      if (tienePropina && (montoPropinaNumero === null || montoPropinaNumero <= 0)) {
+        alert("Ingresa el monto de la propina.");
+        return;
+      }
+      detallePago = {
+        tipo: metodoPago,
+        monto: montoMetodo,
+        propina: montoPropinaNumero !== null ? { monto: montoPropinaNumero } : null,
+        dolares: null,
+      };
+    }
+
+    const metodoPagoDetalle = JSON.stringify(detallePago);
     const token = localStorage.getItem("admin_token");
     await fetch(`${API}/reservas/${modalReserva.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ estado: "confirmada", metodo_pago: metodoPago }),
+      body: JSON.stringify({ estado: "confirmada", metodo_pago: metodoPagoDetalle }),
     });
-    setReservas(reservas.map((r) => r.id === modalReserva.id ? { ...r, estado: "confirmada", metodo_pago: metodoPago } : r));
+    setReservas((prev) =>
+      prev.map((r) =>
+        r.id === modalReserva.id
+          ? { ...r, estado: "confirmada", metodo_pago: metodoPagoDetalle }
+          : r,
+      ),
+    );
     setModalReserva(null);
     setMetodoPago(null);
+    setMontoPagoMetodo("");
+    setMontoMixtoEfectivo("");
+    setTienePropina(false);
+    setMontoPropina("");
+    setTieneDolares(false);
+    setMontoDolares("");
   };
 
   const cancelarReserva = async (id: number) => {
@@ -205,15 +294,141 @@ export default function Admin() {
 
   const parsearPrecio = (precio: string) => parseInt(precio.replace(/[^0-9]/g, "")) || 0;
 
+  const parseMontoUSD = (valor: string) => {
+    const cleaned = valor.replace(/[^0-9.]/g, "");
+    const n = parseFloat(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  type PagoDetalle = {
+    tipo: "sinpe" | "efectivo" | "mixto" | null;
+    montoColones: number | null;
+    montoSinpe?: number;
+    montoEfectivo?: number;
+    propinaMonto: number;
+    dolaresMonto: number;
+  };
+
+  const parseMetodoPagoDetalle = (metodoRaw: string | null): PagoDetalle => {
+    if (!metodoRaw) return { tipo: null, montoColones: null, propinaMonto: 0, dolaresMonto: 0 };
+    const raw = metodoRaw.trim();
+    if (raw === "sinpe" || raw === "efectivo") {
+      return { tipo: raw, montoColones: null, propinaMonto: 0, dolaresMonto: 0 };
+    }
+    if (raw.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(raw) as {
+          tipo?: string;
+          monto?: number | null;
+          montoSinpe?: number | null;
+          montoEfectivo?: number | null;
+          monto_sinpe?: number | null;
+          monto_efectivo?: number | null;
+          propina?: { monto?: number } | null;
+          dolares?: { monto?: number } | null;
+        };
+        if (parsed.tipo === "mixto") {
+          const sinpe = parsed.montoSinpe ?? parsed.monto_sinpe ?? 0;
+          const efectivo = parsed.montoEfectivo ?? parsed.monto_efectivo ?? 0;
+          return {
+            tipo: "mixto",
+            montoColones: sinpe + efectivo,
+            montoSinpe: sinpe,
+            montoEfectivo: efectivo,
+            propinaMonto: 0,
+            dolaresMonto: 0,
+          };
+        }
+        const tipo = parsed.tipo === "sinpe" || parsed.tipo === "efectivo" ? parsed.tipo : null;
+        return {
+          tipo,
+          montoColones: typeof parsed.monto === "number" ? parsed.monto : null,
+          propinaMonto: typeof parsed.propina?.monto === "number" ? parsed.propina.monto : 0,
+          dolaresMonto: typeof parsed.dolares?.monto === "number" ? parsed.dolares.monto : 0,
+        };
+      } catch {
+        return { tipo: null, montoColones: null, propinaMonto: 0, dolaresMonto: 0 };
+      }
+    }
+    return { tipo: null, montoColones: null, propinaMonto: 0, dolaresMonto: 0 };
+  };
+
+  const obtenerPrecioBaseReserva = (r: Reserva) => {
+    const det = parseMetodoPagoDetalle(r.metodo_pago);
+    if (det.tipo === "mixto") return (det.montoSinpe ?? 0) + (det.montoEfectivo ?? 0);
+    return det.montoColones !== null ? det.montoColones : parsearPrecio(r.precio);
+  };
+
+  const obtenerIngresoColonesReserva = (r: Reserva) => {
+    const det = parseMetodoPagoDetalle(r.metodo_pago);
+    const base = obtenerPrecioBaseReserva(r);
+    return base + det.propinaMonto + Math.round(det.dolaresMonto * tipoCambio);
+  };
+
+  const obtenerPropinaReserva = (r: Reserva) => parseMetodoPagoDetalle(r.metodo_pago).propinaMonto;
+  const obtenerDolaresReserva = (r: Reserva) => parseMetodoPagoDetalle(r.metodo_pago).dolaresMonto;
+
+  const obtenerIngresoSinpeReserva = (r: Reserva) => {
+    const det = parseMetodoPagoDetalle(r.metodo_pago);
+    if (det.tipo === "sinpe") return det.montoColones ?? parsearPrecio(r.precio);
+    if (det.tipo === "mixto") return det.montoSinpe ?? 0;
+    return 0;
+  };
+
+  const obtenerIngresoEfectivoReserva = (r: Reserva) => {
+    const det = parseMetodoPagoDetalle(r.metodo_pago);
+    if (det.tipo === "efectivo") return det.montoColones ?? parsearPrecio(r.precio);
+    if (det.tipo === "mixto") return det.montoEfectivo ?? 0;
+    return 0;
+  };
+
+  const formatPagoDetalle = (r: Reserva) => {
+    const det = parseMetodoPagoDetalle(r.metodo_pago);
+    const partes: string[] = [];
+
+    if (det.tipo === "mixto") {
+      if (det.montoSinpe) partes.push(`SINPE ₡${det.montoSinpe.toLocaleString("es-CR")}`);
+      if (det.montoEfectivo) partes.push(`Efectivo ₡${det.montoEfectivo.toLocaleString("es-CR")}`);
+    } else {
+      const montoColones = obtenerPrecioBaseReserva(r);
+      const tipoLabel = det.tipo === "sinpe" ? "SINPE" : det.tipo === "efectivo" ? "Efectivo" : null;
+      if (tipoLabel) {
+        partes.push(`${tipoLabel} ₡${montoColones.toLocaleString("es-CR")}`);
+      } else {
+        partes.push(`₡${montoColones.toLocaleString("es-CR")}`);
+      }
+      if (det.propinaMonto > 0) partes.push(`Propina ₡${det.propinaMonto.toLocaleString("es-CR")}`);
+      if (det.dolaresMonto > 0) partes.push(`USD ${det.dolaresMonto.toFixed(2)}`);
+    }
+
+    return partes.join(" · ");
+  };
+
   const hoy = new Date();
-  const fechaHoy = `${hoy.getDate()}/${hoy.getMonth() + 1}/${hoy.getFullYear()}`;
+  const fechaHoy = hoy.toLocaleDateString("es-CR");
 
   const reservasActivas = reservas.filter((r) => r.estado !== "cancelada" && r.estado !== "bloqueado");
   const reservasConfirmadas = reservasActivas.filter((r) => r.estado === "confirmada");
 
   const ingresosHoy = reservasConfirmadas
     .filter((r) => r.fecha === fechaHoy)
-    .reduce((t, r) => t + parsearPrecio(r.precio), 0);
+    .reduce((t, r) => t + obtenerIngresoColonesReserva(r), 0);
+
+  const ingresosHoySinpe = reservasConfirmadas
+    .filter((r) => r.fecha === fechaHoy)
+    .reduce((t, r) => t + obtenerIngresoSinpeReserva(r), 0);
+
+  const ingresosHoyEfectivo = reservasConfirmadas
+    .filter((r) => r.fecha === fechaHoy)
+    .reduce((t, r) => t + obtenerIngresoEfectivoReserva(r), 0);
+
+  const propinasHoy = reservasConfirmadas
+    .filter((r) => r.fecha === fechaHoy)
+    .reduce((t, r) => t + obtenerPropinaReserva(r), 0);
+
+  const dolaresHoy = reservasConfirmadas
+    .filter((r) => r.fecha === fechaHoy)
+    .reduce((t, r) => t + obtenerDolaresReserva(r), 0);
 
   const ingresosSemanales = (() => {
     const diasSemana: {[key: string]: number} = {};
@@ -222,15 +437,25 @@ export default function Admin() {
     for (let i = 0; i <= 6; i++) {
       const d = new Date(inicio);
       d.setDate(inicio.getDate() + i);
-      const key = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+      const key = d.toLocaleDateString("es-CR");
       diasSemana[key] = reservasConfirmadas
         .filter((r) => r.fecha === key)
-        .reduce((t, r) => t + parsearPrecio(r.precio), 0);
+        .reduce((t, r) => t + obtenerIngresoColonesReserva(r), 0);
     }
     return diasSemana;
   })();
 
   const ingresosSemanaTotal = Object.values(ingresosSemanales).reduce((a, b) => a + b, 0);
+
+  const fechasSemanaKeys = Object.keys(ingresosSemanales);
+
+  const propinasSemanaTotal = reservasConfirmadas
+    .filter((r) => fechasSemanaKeys.includes(r.fecha))
+    .reduce((t, r) => t + obtenerPropinaReserva(r), 0);
+
+  const dolaresSemanaTotal = reservasConfirmadas
+    .filter((r) => fechasSemanaKeys.includes(r.fecha))
+    .reduce((t, r) => t + obtenerDolaresReserva(r), 0);
 
   const ingresosMes = (() => {
     const mesActual = hoy.getMonth() + 1;
@@ -240,8 +465,44 @@ export default function Admin() {
         const partes = r.fecha.split("/");
         return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
       })
-      .reduce((t, r) => t + parsearPrecio(r.precio), 0);
+      .reduce((t, r) => t + obtenerIngresoColonesReserva(r), 0);
   })();
+
+  const propinasMes = reservasConfirmadas
+    .filter((r) => {
+      const partes = r.fecha.split("/");
+      const mesActual = hoy.getMonth() + 1;
+      const anioActual = hoy.getFullYear();
+      return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
+    })
+    .reduce((t, r) => t + obtenerPropinaReserva(r), 0);
+
+  const dolaresMes = reservasConfirmadas
+    .filter((r) => {
+      const partes = r.fecha.split("/");
+      const mesActual = hoy.getMonth() + 1;
+      const anioActual = hoy.getFullYear();
+      return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
+    })
+    .reduce((t, r) => t + obtenerDolaresReserva(r), 0);
+
+  const ingresosMesSinpe = reservasConfirmadas
+    .filter((r) => {
+      const partes = r.fecha.split("/");
+      const mesActual = hoy.getMonth() + 1;
+      const anioActual = hoy.getFullYear();
+      return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
+    })
+    .reduce((t, r) => t + obtenerIngresoSinpeReserva(r), 0);
+
+  const ingresosMesEfectivo = reservasConfirmadas
+    .filter((r) => {
+      const partes = r.fecha.split("/");
+      const mesActual = hoy.getMonth() + 1;
+      const anioActual = hoy.getFullYear();
+      return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
+    })
+    .reduce((t, r) => t + obtenerIngresoEfectivoReserva(r), 0);
 
   const reservasFiltradas = reservasActivas
   .filter((r) => {
@@ -310,21 +571,151 @@ export default function Admin() {
               <p className="text-gold font-black text-xl mt-1">{modalReserva.precio}</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <button onClick={() => setMetodoPago("sinpe")} className={`p-4 rounded-xl border text-center transition-all duration-300 ${metodoPago === "sinpe" ? "border-gold bg-gold text-black" : "border-dark-border text-white hover:border-gold"}`}>
-                <p className="font-black text-lg">📱</p>
-                <p className="font-bold text-sm mt-1">SINPE</p>
-                <p className="text-xs opacity-70">Móvil</p>
-              </button>
-              <button onClick={() => setMetodoPago("efectivo")} className={`p-4 rounded-xl border text-center transition-all duration-300 ${metodoPago === "efectivo" ? "border-gold bg-gold text-black" : "border-dark-border text-white hover:border-gold"}`}>
-                <p className="font-black text-lg">💵</p>
-                <p className="font-bold text-sm mt-1">Efectivo</p>
-                <p className="text-xs opacity-70">En mano</p>
-              </button>
+            <div className="grid grid-cols-3 gap-3 mb-6">
+  <button onClick={() => setMetodoPago("sinpe")} className={`p-3 rounded-xl border text-center transition-all duration-300 ${metodoPago === "sinpe" ? "border-gold bg-gold text-black" : "border-dark-border text-white hover:border-gold"}`}>
+    <p className="font-black text-lg">📱</p>
+    <p className="font-bold text-xs mt-1">SINPE</p>
+  </button>
+  <button onClick={() => setMetodoPago("efectivo")} className={`p-3 rounded-xl border text-center transition-all duration-300 ${metodoPago === "efectivo" ? "border-gold bg-gold text-black" : "border-dark-border text-white hover:border-gold"}`}>
+    <p className="font-black text-lg">💵</p>
+    <p className="font-bold text-xs mt-1">Efectivo</p>
+  </button>
+  <button onClick={() => setMetodoPago("mixto")} className={`p-3 rounded-xl border text-center transition-all duration-300 ${metodoPago === "mixto" ? "border-gold bg-gold text-black" : "border-dark-border text-white hover:border-gold"}`}>
+    <p className="font-black text-lg">💳</p>
+    <p className="font-bold text-xs mt-1">Mixto</p>
+  </button>
+</div>
+
+{metodoPago === "mixto" && (
+  <div className="flex flex-col gap-3 mb-4">
+    <div>
+      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Monto SINPE (₡)</label>
+      <input
+        type="text"
+        inputMode="numeric"
+        placeholder="Ej: ₡2000"
+        value={montoPagoMetodo}
+        onChange={(e) => setMontoPagoMetodo(e.target.value)}
+        className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold transition-colors"
+      />
+    </div>
+    <div>
+      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Monto Efectivo (₡)</label>
+      <input
+        type="text"
+        inputMode="numeric"
+        placeholder="Ej: ₡2000"
+        value={montoMixtoEfectivo}
+        onChange={(e) => setMontoMixtoEfectivo(e.target.value)}
+        className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold transition-colors"
+      />
+    </div>
+    <div className="bg-dark rounded-xl p-3 border border-gold">
+      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Total recibido</p>
+      <p className="text-gold font-black text-xl">
+        ₡{(parsearPrecio(montoPagoMetodo) + parsearPrecio(montoMixtoEfectivo)).toLocaleString("es-CR")}
+      </p>
+    </div>
+  </div>
+)}
+
+            <div className="flex flex-col gap-4 mb-6">
+            {metodoPago !== "mixto" && !tieneDolares && (
+              <div>
+                <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">
+                  Monto recibido en {metodoPago === "sinpe" ? "SINPE" : "EFECTIVO"} (₡)
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Ej: ₡4000"
+                  value={montoPagoMetodo}
+                  onChange={(e) => setMontoPagoMetodo(e.target.value)}
+                  disabled={!metodoPago}
+                  className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold transition-colors disabled:opacity-60"
+                />
+              </div>
+            )}
+
+            {metodoPago !== "mixto" && tieneDolares && (
+              <div>
+                <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">
+                  Monto recibido en dólares (USD)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ej: 20"
+                  value={montoDolares}
+                  onChange={(e) => setMontoDolares(e.target.value)}
+                  disabled={!metodoPago}
+                  className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold transition-colors disabled:opacity-60"
+                />
+              </div>
+            )}
+
+              {metodoPago !== "mixto" && (
+              <>
+              <div className="flex items-center justify-between gap-4">
+                <label className="flex items-center gap-2 text-gray-400 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tienePropina}
+                    onChange={(e) => setTienePropina(e.target.checked)}
+                    className="accent-gold"
+                  />
+                  ¿Dieron propina?
+                </label>
+              </div>
+              {tienePropina && (
+                <div>
+                  <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">
+                    Monto de propina (₡)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Ej: ₡500"
+                    value={montoPropina}
+                    onChange={(e) => setMontoPropina(e.target.value)}
+                    className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold transition-colors"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-4">
+                <label className="flex items-center gap-2 text-gray-400 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tieneDolares}
+                    onChange={(e) => {
+                      setTieneDolares(e.target.checked);
+                      if (e.target.checked) setMontoPagoMetodo("");
+                      else setMontoDolares("");
+                    }}
+                    className="accent-gold"
+                  />
+                  ¿Pagaron en dólares?
+                </label>
+              </div>
+              </>
+              )}
             </div>
 
             <div className="flex gap-3">
-              <button onClick={() => { setModalReserva(null); setMetodoPago(null); }} className="flex-1 border border-dark-border text-gray-500 text-xs uppercase tracking-widest py-3 rounded-xl hover:border-gold transition-all">
+              <button
+                onClick={() => {
+                  setModalReserva(null);
+                  setMetodoPago(null);
+                  setMontoPagoMetodo("");
+                  setMontoMixtoEfectivo("");
+                  setTienePropina(false);
+                  setMontoPropina("");
+                  setTieneDolares(false);
+                  setMontoDolares("");
+                }}
+                className="flex-1 border border-dark-border text-gray-500 text-xs uppercase tracking-widest py-3 rounded-xl hover:border-gold transition-all"
+              >
                 Cancelar
               </button>
               <button onClick={confirmarPago} disabled={!metodoPago} className="flex-1 btn-gold text-xs uppercase tracking-widest py-3 disabled:opacity-50">
@@ -401,15 +792,25 @@ export default function Admin() {
                   <p className="text-gold text-xs uppercase tracking-wider mb-2">Ingresos de Hoy</p>
                   <p className="text-white font-black text-4xl">₡{ingresosHoy.toLocaleString("es-CR")}</p>
                   <p className="text-gray-500 text-sm mt-2">{reservasConfirmadas.filter((r) => r.fecha === fechaHoy).length} cortes realizados hoy</p>
+                  <p className="text-gray-600 text-xs mt-1">Incluye propinas y dólares convertidos · TC: ₡{tipoCambio.toFixed(0)}/USD</p>
                 </div>
                 <div className="flex flex-col gap-4">
                   <div className="bg-dark-card border border-dark-border rounded-xl p-4">
                     <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">SINPE</p>
-                    <p className="text-white font-black text-xl">₡{reservasConfirmadas.filter((r) => r.fecha === fechaHoy && r.metodo_pago === "sinpe").reduce((t, r) => t + parsearPrecio(r.precio), 0).toLocaleString("es-CR")}</p>
+                    <p className="text-white font-black text-xl">₡{ingresosHoySinpe.toLocaleString("es-CR")}</p>
                   </div>
                   <div className="bg-dark-card border border-dark-border rounded-xl p-4">
                     <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Efectivo</p>
-                    <p className="text-white font-black text-xl">₡{reservasConfirmadas.filter((r) => r.fecha === fechaHoy && r.metodo_pago === "efectivo").reduce((t, r) => t + parsearPrecio(r.precio), 0).toLocaleString("es-CR")}</p>
+                    <p className="text-white font-black text-xl">₡{ingresosHoyEfectivo.toLocaleString("es-CR")}</p>
+                  </div>
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Propinas</p>
+                    <p className="text-white font-black text-xl">₡{propinasHoy.toLocaleString("es-CR")}</p>
+                  </div>
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Dólares</p>
+                    <p className="text-white font-black text-xl">${dolaresHoy.toFixed(2)}</p>
+                    {dolaresHoy > 0 && <p className="text-gray-600 text-xs mt-1">≈ ₡{Math.round(dolaresHoy * tipoCambio).toLocaleString("es-CR")}</p>}
                   </div>
                 </div>
               </div>
@@ -420,6 +821,18 @@ export default function Admin() {
                 <div className="bg-dark-card border border-gold rounded-xl p-6">
                   <p className="text-gold text-xs uppercase tracking-wider mb-2">Total esta semana</p>
                   <p className="text-white font-black text-4xl">₡{ingresosSemanaTotal.toLocaleString("es-CR")}</p>
+                  <p className="text-gray-600 text-xs mt-2">Incluye propinas y dólares convertidos · TC: ₡{tipoCambio.toFixed(0)}/USD</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Propinas</p>
+                    <p className="text-white font-black text-xl">₡{propinasSemanaTotal.toLocaleString("es-CR")}</p>
+                  </div>
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Dólares</p>
+                    <p className="text-white font-black text-xl">${dolaresSemanaTotal.toFixed(2)}</p>
+                    {dolaresSemanaTotal > 0 && <p className="text-gray-600 text-xs mt-1">≈ ₡{Math.round(dolaresSemanaTotal * tipoCambio).toLocaleString("es-CR")}</p>}
+                  </div>
                 </div>
                 <div className="bg-dark-card border border-dark-border rounded-xl overflow-hidden">
                   {Object.entries(ingresosSemanales).map(([fecha, monto]) => (
@@ -440,15 +853,25 @@ export default function Admin() {
                   <p className="text-gold text-xs uppercase tracking-wider mb-2">Ingresos del Mes</p>
                   <p className="text-white font-black text-4xl">₡{ingresosMes.toLocaleString("es-CR")}</p>
                   <p className="text-gray-500 text-sm mt-2">{reservasConfirmadas.filter((r) => { const p = r.fecha.split("/"); return parseInt(p[1]) === hoy.getMonth() + 1; }).length} cortes realizados este mes</p>
+                  <p className="text-gray-600 text-xs mt-1">Incluye propinas y dólares convertidos · TC: ₡{tipoCambio.toFixed(0)}/USD</p>
                 </div>
                 <div className="flex flex-col gap-4">
                   <div className="bg-dark-card border border-dark-border rounded-xl p-4">
                     <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">SINPE</p>
-                    <p className="text-white font-black text-xl">₡{reservasConfirmadas.filter((r) => { const p = r.fecha.split("/"); return parseInt(p[1]) === hoy.getMonth() + 1 && r.metodo_pago === "sinpe"; }).reduce((t, r) => t + parsearPrecio(r.precio), 0).toLocaleString("es-CR")}</p>
+                    <p className="text-white font-black text-xl">₡{ingresosMesSinpe.toLocaleString("es-CR")}</p>
                   </div>
                   <div className="bg-dark-card border border-dark-border rounded-xl p-4">
                     <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Efectivo</p>
-                    <p className="text-white font-black text-xl">₡{reservasConfirmadas.filter((r) => { const p = r.fecha.split("/"); return parseInt(p[1]) === hoy.getMonth() + 1 && r.metodo_pago === "efectivo"; }).reduce((t, r) => t + parsearPrecio(r.precio), 0).toLocaleString("es-CR")}</p>
+                    <p className="text-white font-black text-xl">₡{ingresosMesEfectivo.toLocaleString("es-CR")}</p>
+                  </div>
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Propinas</p>
+                    <p className="text-white font-black text-xl">₡{propinasMes.toLocaleString("es-CR")}</p>
+                  </div>
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Dólares</p>
+                    <p className="text-white font-black text-xl">${dolaresMes.toFixed(2)}</p>
+                    {dolaresMes > 0 && <p className="text-gray-600 text-xs mt-1">≈ ₡{Math.round(dolaresMes * tipoCambio).toLocaleString("es-CR")}</p>}
                   </div>
                 </div>
               </div>
@@ -487,7 +910,9 @@ export default function Admin() {
                     <p className="text-white font-bold">{reserva.servicio}</p>
                     <p className="text-gold text-sm font-bold">{reserva.precio}</p>
                     {reserva.metodo_pago && (
-                      <span className="text-xs text-gray-500 capitalize">Pago: {reserva.metodo_pago}</span>
+                      <span className="text-xs text-gray-500 capitalize">
+                        Pago: {formatPagoDetalle(reserva)}
+                      </span>
                     )}
                   </div>
                   <div>
@@ -608,7 +1033,7 @@ export default function Admin() {
                 <div>
                   <p className="text-white font-bold text-sm">{reserva.nombre}</p>
                   <p className="text-gray-500 text-xs">{reserva.servicio} · {reserva.precio}</p>
-                  {reserva.metodo_pago && <p className="text-gray-600 text-xs capitalize">Pago: {reserva.metodo_pago}</p>}
+                  {reserva.metodo_pago && <p className="text-gray-600 text-xs capitalize">Pago: {formatPagoDetalle(reserva)}</p>}
                 </div>
               </div>
               <div className="flex items-center gap-2">
