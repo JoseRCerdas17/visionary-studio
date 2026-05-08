@@ -1,30 +1,69 @@
+import logging
+import os
+from datetime import datetime
+from typing import Optional
+
+import resend
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
+
 from database.connection import SessionLocal
 from models.reserva import Reserva
-from datetime import datetime, timedelta
-import resend
-import os
+from recordatorios_logic import (
+    CR_TZ,
+    MAX_SEGUNDOS_ANTES_UNA_HORA,
+    MIN_SEGUNDOS_ANTES_UNA_HORA,
+    TICK_MINUTES,
+    TZ_CR,
+    debe_enviar_1h,
+    debe_enviar_dia_previo,
+    parse_cita_cr,
+)
 
 resend.api_key = os.getenv("RESEND_API_KEY")
 
-def enviar_recordatorio(nombre: str, email: str, servicio: str, precio: str, fecha: str, hora: str, tipo: str, reserva_id: int):
+_logger = logging.getLogger(__name__)
+
+_ENV_TRUE = frozenset({"1", "true", "yes", "on"})
+
+
+def enviar_recordatorio(
+    nombre: str,
+    email: str,
+    servicio: str,
+    precio: str,
+    fecha: str,
+    hora: str,
+    tipo: str,
+    reserva_id: int,
+) -> bool:
+    if not os.getenv("RESEND_API_KEY"):
+        _logger.error(
+            "RESEND_API_KEY ausente; no se puede enviar recordatorio reserva_id=%s",
+            reserva_id,
+        )
+        return False
     try:
         maps_url = "https://maps.app.goo.gl/zcfrCQAJDv4KLDfb9"
         whatsapp_url = "https://wa.me/50662009558"
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
         cancelar_url = f"{frontend_url}/cancelar?id={reserva_id}"
-        asunto = "Recordatorio: Tu cita es mañana" if tipo == "24h" else "Recordatorio: Tu cita es en 1 hora"
-        mensaje_tiempo = "mañana" if tipo == "24h" else "en 1 hora"
+        if tipo == "dia_previo":
+            asunto = "Recordatorio: Tu cita es mañana"
+            mensaje_tiempo = "mañana"
+        else:
+            asunto = "Recordatorio: Tu cita es en 1 hora"
+            mensaje_tiempo = "en alrededor de 1 hora"
 
-        resend.Emails.send({
-            "from": "Visionary Studio <reservas@visionarystudiobarbershop.com>",
-            "to": email,
-            "subject": asunto,
-            "html": f"""
+        resend.Emails.send(
+            {
+                "from": "Visionary Studio <reservas@visionarystudiobarbershop.com>",
+                "to": email,
+                "subject": asunto,
+                "html": f"""
 <!DOCTYPE html>
 <html>
-<head><meta charset="UTF-8"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;background-color:#0A0A0A;font-family:Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;background-color:#0A0A0A;">
 
@@ -109,88 +148,121 @@ def enviar_recordatorio(nombre: str, email: str, servicio: str, precio: str, fec
   </div>
 </body>
 </html>
-            """
-        })
-        print(f"Recordatorio {tipo} enviado a {email}")
+            """,
+            }
+        )
+        _logger.info(
+            "Recordatorio enviado tipo=%s reserva_id=%s email=%s",
+            tipo,
+            reserva_id,
+            email,
+        )
+        return True
     except Exception as e:
-        print(f"Error enviando recordatorio: {e}")
+        _logger.exception(
+            "Error enviando recordatorio tipo=%s reserva_id=%s: %s",
+            tipo,
+            reserva_id,
+            e,
+        )
+        return False
 
 
-def parsear_fecha_hora(fecha: str, hora: str):
-    try:
-        partes_fecha = fecha.split("/")
-        dia = int(partes_fecha[0])
-        mes = int(partes_fecha[1])
-        anio = int(partes_fecha[2])
-
-        # Limpiar espacios extras
-        hora = hora.strip()
-        partes_hora = hora.split(" ")
-        tiempo = partes_hora[0].split(":")
-        hora_num = int(tiempo[0])
-        minuto_num = int(tiempo[1])
-        periodo = partes_hora[1].strip().upper()
-
-        if periodo == "PM" and hora_num != 12:
-            hora_num += 12
-        elif periodo == "AM" and hora_num == 12:
-            hora_num = 0
-
-        resultado = datetime(anio, mes, dia, hora_num, minuto_num)
-        print(f"Fecha parseada: {resultado} para {fecha} {hora}")
-        return resultado
-    except Exception as e:
-        print(f"Error parseando fecha/hora '{fecha}' '{hora}': {e}")
-        return None
+def _payload_reserva(r: Reserva):
+    return {
+        "nombre": r.nombre,
+        "email": r.email,
+        "servicio": r.servicio,
+        "precio": r.precio,
+        "fecha": r.fecha,
+        "hora": r.hora,
+        "reserva_id": r.id,
+    }
 
 
 def verificar_recordatorios():
+    """Un sólo ciclo cada pocos min: día previo (~14 h CR) y aviso ~1 h antes."""
     db: Session = SessionLocal()
     try:
-        ahora = datetime.now()
+        ahora_cr = datetime.now(CR_TZ)
+
         reservas = db.query(Reserva).filter(Reserva.estado == "pendiente").all()
 
         for reserva in reservas:
-            cita_dt = parsear_fecha_hora(reserva.fecha, reserva.hora)
-            if not cita_dt:
-                continue
+            try:
+                cita_cr = parse_cita_cr(reserva.fecha, reserva.hora)
+                if not cita_cr:
+                    _logger.warning(
+                        "fecha/hora no parseable id=%s fecha=%r hora=%r",
+                        reserva.id,
+                        reserva.fecha,
+                        reserva.hora,
+                    )
+                    continue
 
-            diferencia = cita_dt - ahora
-            horas_restantes = diferencia.total_seconds() / 3600
-            print(f"Reserva {reserva.id}: {reserva.nombre} - Cita: {cita_dt} - Ahora: {ahora} - Horas restantes: {horas_restantes:.2f}")
+                if debe_enviar_dia_previo(
+                    ahora_cr,
+                    cita_cr,
+                    bool(reserva.recordatorio_dia_previo_enviado),
+                ):
+                    kw = _payload_reserva(reserva)
+                    if enviar_recordatorio(**kw, tipo="dia_previo"):
+                        reserva.recordatorio_dia_previo_enviado = True
+                        db.commit()
 
-            # Recordatorio 24 horas antes (entre 23.5 y 24.5 horas)
-            if 23 <= horas_restantes <= 25:
-              enviar_recordatorio(
-                  nombre=reserva.nombre,
-                  email=reserva.email,
-                  servicio=reserva.servicio,
-                  precio=reserva.precio,
-                  fecha=reserva.fecha,
-                  hora=reserva.hora,
-                  tipo="24h",
-                  reserva_id=reserva.id
-              )
+                if debe_enviar_1h(
+                    ahora_cr,
+                    cita_cr,
+                    bool(reserva.recordatorio_1h_enviado),
+                ):
+                    kw = _payload_reserva(reserva)
+                    if enviar_recordatorio(**kw, tipo="1h"):
+                        reserva.recordatorio_1h_enviado = True
+                        db.commit()
 
-            elif 50/60 <= horas_restantes <= 70/60:
-                enviar_recordatorio(
-                    nombre=reserva.nombre,
-                    email=reserva.email,
-                    servicio=reserva.servicio,
-                    precio=reserva.precio,
-                    fecha=reserva.fecha,
-                    hora=reserva.hora,
-                    tipo="1h",
-                    reserva_id=reserva.id
+            except Exception:
+                db.rollback()
+                _logger.exception(
+                    "Error procesando recordatorios para reserva id=%s",
+                    reserva.id,
                 )
-
     finally:
         db.close()
 
 
 def iniciar_scheduler():
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(verificar_recordatorios, "interval", minutes=30)
+    if os.getenv("DISABLE_REMINDER_SCHEDULER", "").strip().lower() in _ENV_TRUE:
+        _logger.info(
+            "Recordatorios desactivados (DISABLE_REMINDER_SCHEDULER); "
+            "si escalas réplicas deja sólo una con recordatorios encendidos."
+        )
+        return None
+    scheduler = BackgroundScheduler(timezone=TZ_CR)
+    scheduler.add_job(
+        verificar_recordatorios,
+        "interval",
+        minutes=TICK_MINUTES,
+        misfire_grace_time=420,
+        coalesce=True,
+        max_instances=1,
+        id="recordatorios_visionary",
+        replace_existing=True,
+    )
     scheduler.start()
-    print("Scheduler de recordatorios iniciado")
+    _logger.info(
+        "Recordatorios activos CR: cada %s min | ventana 1h ~%s-%s min antes",
+        TICK_MINUTES,
+        MIN_SEGUNDOS_ANTES_UNA_HORA // 60,
+        MAX_SEGUNDOS_ANTES_UNA_HORA // 60,
+    )
     return scheduler
+
+
+def shutdown_scheduler(scheduler: Optional[BackgroundScheduler]) -> None:
+    if scheduler is None:
+        return
+    try:
+        scheduler.shutdown(wait=False)
+        _logger.info("Scheduler de recordatorios detenido")
+    except Exception as e:
+        _logger.warning("Scheduler recordatorios al cerrar: %s", e)

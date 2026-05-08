@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from database.connection import Base
 from datetime import datetime
 
@@ -17,3 +17,5 @@ class Reserva(Base):
     estado = Column(String, default="pendiente")
     metodo_pago = Column(String, nullable=True)
     creado_en = Column(DateTime, default=datetime.utcnow)
+    recordatorio_dia_previo_enviado = Column(Boolean, default=False, nullable=False)
+    recordatorio_1h_enviado = Column(Boolean, default=False, nullable=False)
