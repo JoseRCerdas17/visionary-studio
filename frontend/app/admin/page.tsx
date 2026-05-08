@@ -39,7 +39,7 @@ const HORARIOS = [
 export default function Admin() {
   const [reservas, setReservas] = useState<Reserva[]>([]);
   const [cargando, setCargando] = useState(true);
-  const [filtro, setFiltro] = useState("todas");
+  const [filtro, setFiltro] = useState("pendiente");
   const [busqueda, setBusqueda] = useState("");
   const [vista, setVista] = useState<"lista" | "calendario" | "ingresos">("lista");
   const [modalReserva, setModalReserva] = useState<Reserva | null>(null);
@@ -1024,8 +1024,16 @@ export default function Admin() {
         </p>
       </div>
       <div className="divide-y divide-dark-border">
-        {reservasDelDia
-          .sort((a, b) => a.hora.localeCompare(b.hora))
+        {[...reservasDelDia]
+          .sort((a, b) => {
+            const parsearHora = (hora: string) => {
+              const partes = hora.split(" ");
+              const [h, m] = partes[0].split(":").map(Number);
+              const esPM = partes[1] === "PM";
+              return (esPM && h !== 12 ? h + 12 : !esPM && h === 12 ? 0 : h) * 60 + m;
+            };
+            return parsearHora(a.hora) - parsearHora(b.hora);
+          })
           .map((reserva) => (
             <div key={reserva.id} className="px-6 py-4 flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
