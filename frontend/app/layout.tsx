@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Montserrat, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import WhatsAppButton from "./components/ui/WhatsAppButton";
+import LocationButton from "./components/ui/LocationButton";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body className={`${montserrat.variable} ${playfair.variable} ${montserrat.className} bg-dark text-white antialiased`}>
         {children}
+        <LocationButton />
         <WhatsAppButton />
       </body>
     </html>
