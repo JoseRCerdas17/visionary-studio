@@ -43,6 +43,11 @@ class DiaPrevioTests(TestCase):
         ahora = datetime(2026, 5, 13, 14, 0, tzinfo=CR_TZ)
         self.assertFalse(debe_enviar_dia_previo(ahora, cita, ya_enviado=False))
 
+    def test_dia_previo_tarde_si_deploy_cayo(self):
+        cita = datetime(2026, 5, 15, 10, 0, tzinfo=CR_TZ)
+        ahora = datetime(2026, 5, 14, 18, 0, tzinfo=CR_TZ)
+        self.assertTrue(debe_enviar_dia_previo(ahora, cita, ya_enviado=False))
+
     def test_no_duplica_si_ya_enviado(self):
         cita = datetime(2026, 5, 15, 10, 0, tzinfo=CR_TZ)
         ahora = datetime(2026, 5, 14, 14, 45, tzinfo=CR_TZ)

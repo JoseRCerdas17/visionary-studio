@@ -45,7 +45,8 @@ def debe_enviar_dia_previo(ahora_cr: datetime, cita_cr: datetime, ya_enviado: bo
     if ya_enviado:
         return False
     dia_previo = cita_cr.date() - timedelta(days=1)
-    return ahora_cr.date() == dia_previo and ahora_cr.hour == 14
+    # A partir de las 14:00 CR del día previo (si el deploy cayó a esa hora, no se pierde el envío).
+    return ahora_cr.date() == dia_previo and ahora_cr.hour >= 14
 
 
 def debe_enviar_1h(
