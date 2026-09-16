@@ -11,11 +11,10 @@ from models.reserva import Reserva
 from models.usuario import Usuario
 from models.resena import Resena
 from models.stamp_card import StampCard, StampToken
-from models.vip import ClienteVip, CodigoVip
 from auth.security import hashear_password
 from recordatorios import iniciar_scheduler, shutdown_scheduler
 from recordatorios_logic import CR_TZ, MIN_SEGUNDOS_ANTES_UNA_HORA, MAX_SEGUNDOS_ANTES_UNA_HORA, parse_cita_cr, debe_enviar_dia_previo, debe_enviar_1h
-from routers import auth, reservas, resenas, stamps, vip
+from routers import auth, reservas, resenas, stamps
 
 logging.basicConfig(
     level=logging.INFO,
@@ -107,7 +106,6 @@ app.include_router(reservas.router)
 app.include_router(auth.router)
 app.include_router(resenas.router)
 app.include_router(stamps.router)
-app.include_router(vip.router)
 
 
 @app.get("/")
