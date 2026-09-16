@@ -8,10 +8,20 @@ type StampCard = {
   id: number;
   cliente_nombre: string;
   cliente_telefono: string;
+  barbero: string;
+  barbero_inicial: string;
   total_cortes: number;
   descuento_porcentaje: number;
   descuento_texto: string;
 };
+
+function BarberoBadge({ inicial }: { inicial: string }) {
+  return (
+    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#E0B84C] text-sm font-black text-black">
+      {inicial}
+    </span>
+  );
+}
 
 function StampGrid({ total }: { total: number }) {
   return (
@@ -37,7 +47,7 @@ function StampGrid({ total }: { total: number }) {
 
 export default function CardPage() {
   const [telefono, setTelefono] = useState("");
-  const [card, setCard] = useState<StampCard | null>(null);
+  const [cards, setCards] = useState<StampCard[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -53,13 +63,13 @@ export default function CardPage() {
 
     setLoading(true);
     setError("");
-    setCard(null);
+    setCards([]);
     try {
       const response = await fetch(`${API}/stamps/card/${encodeURIComponent(telefono.trim())}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "No encontramos tu tarjeta");
       localStorage.setItem("stamp_telefono", telefono.trim());
-      setCard(data);
+      setCards(Array.isArray(data) ? data : [data]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No encontramos tu tarjeta");
     } finally {
@@ -101,10 +111,14 @@ export default function CardPage() {
           {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
         </div>
 
-        {card && (
-          <div className="mt-6 rounded-[2rem] border border-[#E0B84C]/25 bg-[#1A1A1A] p-5">
+        {cards.map((card) => (
+          <div key={card.id} className="mt-6 rounded-[2rem] border border-[#E0B84C]/25 bg-[#1A1A1A] p-5">
             <div className="rounded-3xl bg-black/35 p-5 text-center">
-              <p className="text-sm text-white/60">{card.cliente_nombre}</p>
+              <div className="flex items-center justify-center gap-2">
+                <BarberoBadge inicial={card.barbero_inicial} />
+                <p className="text-sm text-white/60">Tarjeta con {card.barbero}</p>
+              </div>
+              <p className="mt-2 text-sm text-white/60">{card.cliente_nombre}</p>
               <p className="mt-2 text-5xl font-black text-[#E0B84C]">{card.total_cortes}/10</p>
               <p className="mt-2 text-sm font-bold uppercase tracking-widest text-white">
                 {card.descuento_texto}
@@ -114,7 +128,7 @@ export default function CardPage() {
               <StampGrid total={card.total_cortes} />
             </div>
           </div>
-        )}
+        ))}
       </section>
     </main>
   );

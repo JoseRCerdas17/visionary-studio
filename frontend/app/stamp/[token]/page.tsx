@@ -9,10 +9,20 @@ type StampCard = {
   id: number;
   cliente_nombre: string;
   cliente_telefono: string;
+  barbero: string;
+  barbero_inicial: string;
   total_cortes: number;
   descuento_porcentaje: number;
   descuento_texto: string;
 };
+
+function BarberoBadge({ inicial }: { inicial: string }) {
+  return (
+    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#E0B84C] text-sm font-black text-black">
+      {inicial}
+    </span>
+  );
+}
 
 function StampGrid({ total }: { total: number }) {
   return (
@@ -126,7 +136,11 @@ export default function StampRedeemPage() {
         ) : (
           <div className="mt-8 rounded-[2rem] border border-[#E0B84C]/25 bg-[#1A1A1A] p-5">
             <div className="rounded-3xl bg-black/35 p-5 text-center">
-              <p className="text-sm text-white/60">{card.cliente_nombre}</p>
+              <div className="flex items-center justify-center gap-2">
+                <BarberoBadge inicial={card.barbero_inicial} />
+                <p className="text-sm text-white/60">Tarjeta con {card.barbero}</p>
+              </div>
+              <p className="mt-2 text-sm text-white/60">{card.cliente_nombre}</p>
               <p className="mt-2 text-5xl font-black text-[#E0B84C]">{card.total_cortes}/10</p>
               <p className="mt-2 text-sm font-bold uppercase tracking-widest text-white">
                 {card.descuento_texto}

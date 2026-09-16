@@ -85,6 +85,24 @@ def ensure_cancelada_en_column():
             )
 
 
+def ensure_stamp_card_barbero_column():
+    """Añade columna barbero en stamp_cards para bases existentes (SQLite / Postgres)."""
+    with engine.begin() as conn:
+        if _is_sqlite_url(DATABASE_URL):
+            rows = conn.execute(text("PRAGMA table_info(stamp_cards)")).fetchall()
+            existing = {row[1] for row in rows}
+            if existing and "barbero" not in existing:
+                conn.execute(
+                    text("ALTER TABLE stamp_cards ADD COLUMN barbero VARCHAR DEFAULT 'Lobo' NOT NULL")
+                )
+        else:
+            conn.execute(
+                text(
+                    "ALTER TABLE stamp_cards ADD COLUMN IF NOT EXISTS barbero VARCHAR DEFAULT 'Lobo' NOT NULL"
+                )
+            )
+
+
 def ensure_resenas_table():
     """Crea la tabla resenas si no existe (SQLite / Postgres)."""
     with engine.begin() as conn:

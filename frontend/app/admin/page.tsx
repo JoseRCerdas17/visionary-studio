@@ -46,6 +46,16 @@ interface Resena {
   creado_en: string;
 }
 
+interface CodigoVip {
+  id: number;
+  codigo: string;
+  creado_en: string;
+  expira_en: string;
+  usado: boolean;
+  usado_por_nombre: string | null;
+  estado: "activo" | "usado" | "expirado";
+}
+
 type QrData = {
   token: string;
   qr_url: string;
@@ -59,6 +69,7 @@ const VISTAS = [
   { id: "ingresos", label: "Ingresos" },
   { id: "canceladas", label: "Canceladas" },
   { id: "reseñas", label: "Reseñas" },
+  { id: "vip", label: "VIP" },
 ] as const;
 
 const DIAS_RETENCION_CANCELADAS = 7;
@@ -74,7 +85,7 @@ export default function Admin() {
   const [cargando, setCargando] = useState(true);
   const [filtro, setFiltro] = useState("pendiente");
   const [busqueda, setBusqueda] = useState("");
-  const [vista, setVista] = useState<"lista" | "calendario" | "ingresos" | "canceladas" | "reseñas">("lista");
+  const [vista, setVista] = useState<"lista" | "calendario" | "ingresos" | "canceladas" | "reseñas" | "vip">("lista");
   const [modalReserva, setModalReserva] = useState<Reserva | null>(null);
   const [metodoPago, setMetodoPago] = useState<"sinpe" | "efectivo" | "mixto" | null>(null);
   const [montoPagoMetodo, setMontoPagoMetodo] = useState<string>("");
@@ -101,17 +112,21 @@ export default function Admin() {
   const [qrSecondsLeft, setQrSecondsLeft] = useState(0);
   const [cargandoQrSellos, setCargandoQrSellos] = useState(false);
   const [errorQrSellos, setErrorQrSellos] = useState("");
+  const [qrSellosBarbero, setQrSellosBarbero] = useState<"Lobo" | "Ian">("Lobo");
+  const [codigosVip, setCodigosVip] = useState<CodigoVip[]>([]);
+  const [cargandoCodigosVip, setCargandoCodigosVip] = useState(false);
+  const [codigoVipGenerado, setCodigoVipGenerado] = useState<CodigoVip | null>(null);
 
   const barberoBloqueo = getBarbero(barberoBloqueoId);
   const horariosBarbero = getHorariosBarbero(barberoBloqueoId);
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-  const cargarQrSellos = useCallback(async () => {
+  const cargarQrSellos = useCallback(async (barbero: "Lobo" | "Ian") => {
     setCargandoQrSellos(true);
     setErrorQrSellos("");
     try {
-      const response = await fetch(`${API}/stamps/qr`, { cache: "no-store" });
+      const response = await fetch(`${API}/stamps/qr?barbero=${encodeURIComponent(barbero)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("No se pudo generar el QR");
       const data: QrData = await response.json();
       setQrSellos(data);
@@ -147,6 +162,19 @@ export default function Admin() {
     }
   }, [API]);
 
+  const cargarCodigosVip = useCallback(async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    setCargandoCodigosVip(true);
+    try {
+      const res = await fetch(`${API}/vip/codigos`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      setCodigosVip(Array.isArray(data) ? data : []);
+    } finally {
+      setCargandoCodigosVip(false);
+    }
+  }, [API]);
+
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
     if (!token) { router.push("/login"); return; }
@@ -166,6 +194,7 @@ export default function Admin() {
         if (data) {
           setUsuarioInfo(data);
           const cuentaIan = esCuentaIan(data.username, data.barbero);
+          setQrSellosBarbero(cuentaIan ? "Ian" : "Lobo");
           if (cuentaIan || data.rol === "barber") {
             const perfilBarbero = cuentaIan ? IAN_BARBERO : data.barbero || IAN_BARBERO;
             const barberId = getBarberoId(perfilBarbero);
@@ -205,6 +234,12 @@ export default function Admin() {
   }, [vista, cargarReseñas]);
 
   useEffect(() => {
+    if (vista === "vip") {
+      cargarCodigosVip().catch(() => undefined);
+    }
+  }, [vista, cargarCodigosVip]);
+
+  useEffect(() => {
     if (!modalReserva) return;
     setMetodoPago(null);
     setMontoPagoMetodo("");
@@ -217,9 +252,9 @@ export default function Admin() {
 
   useEffect(() => {
     if (modalQrSellos) {
-      cargarQrSellos();
+      cargarQrSellos(qrSellosBarbero);
     }
-  }, [cargarQrSellos, modalQrSellos]);
+  }, [cargarQrSellos, modalQrSellos, qrSellosBarbero]);
 
   useEffect(() => {
     if (!modalQrSellos || !qrSellos) return;
@@ -231,9 +266,9 @@ export default function Admin() {
 
   useEffect(() => {
     if (modalQrSellos && qrSellos && qrSecondsLeft === 0 && !cargandoQrSellos) {
-      cargarQrSellos();
+      cargarQrSellos(qrSellosBarbero);
     }
-  }, [cargarQrSellos, cargandoQrSellos, modalQrSellos, qrSecondsLeft, qrSellos]);
+  }, [cargarQrSellos, cargandoQrSellos, modalQrSellos, qrSecondsLeft, qrSellos, qrSellosBarbero]);
 
   useEffect(() => {
     if (!modalReserva || !metodoPago) return;
@@ -363,6 +398,31 @@ export default function Admin() {
       headers: { Authorization: `Bearer ${token}` },
     });
     setReseñas(reseñas.filter((r) => r.id !== id));
+  };
+
+  const generarCodigoVip = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    try {
+      const res = await fetch(`${API}/vip/generar-codigo`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "No se pudo generar el codigo VIP");
+        return;
+      }
+      setCodigoVipGenerado(data);
+      setCodigosVip((prev) => [data, ...prev]);
+    } catch {
+      alert("No se pudo generar el codigo VIP");
+    }
+  };
+
+  const copiarCodigoVip = async () => {
+    if (!codigoVipGenerado) return;
+    await navigator.clipboard.writeText(codigoVipGenerado.codigo);
   };
 
   const cerrarSesion = () => {
@@ -992,11 +1052,34 @@ export default function Admin() {
             {errorQrSellos && <p className="mt-4 text-sm text-red-300">{errorQrSellos}</p>}
 
             <button
-              onClick={cargarQrSellos}
+              onClick={() => cargarQrSellos(qrSellosBarbero)}
               className="btn-gold w-full text-sm uppercase tracking-widest py-3 mt-5"
             >
               Generar nuevo QR
             </button>
+          </div>
+        </div>
+      )}
+
+      {codigoVipGenerado && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{background: "rgba(0,0,0,0.8)"}}>
+          <div className="bg-dark-card border border-gold rounded-3xl p-6 w-full max-w-md text-center shadow-2xl shadow-black/60">
+            <p className="text-gold text-xs font-semibold uppercase tracking-[0.35em]">Codigo VIP</p>
+            <h3 className="text-white font-black text-2xl uppercase tracking-widest mt-3">Invitacion Generada</h3>
+            <div className="mt-6 rounded-2xl border border-gold bg-dark p-5">
+              <p className="text-gold text-3xl font-black tracking-widest">{codigoVipGenerado.codigo}</p>
+              <p className="text-gray-500 text-xs uppercase tracking-wider mt-3">
+                Expira: {new Date(codigoVipGenerado.expira_en).toLocaleString("es-CR")}
+              </p>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setCodigoVipGenerado(null)} className="flex-1 border border-dark-border text-gray-500 text-xs uppercase tracking-widest py-3 rounded-xl hover:border-gold transition-all">
+                Cerrar
+              </button>
+              <button onClick={copiarCodigoVip} className="flex-1 btn-gold text-xs uppercase tracking-widest py-3">
+                Copiar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1354,6 +1437,55 @@ export default function Admin() {
                   >
                     Eliminar
                   </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+        ) : vista === "vip" ? (
+
+          <div className="flex flex-col gap-4">
+            <div className="bg-dark-card border border-gold rounded-xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <p className="text-gold text-xs uppercase tracking-widest mb-2">Clientes VIP</p>
+                <h2 className="text-white font-black text-2xl uppercase tracking-wider">Codigos de invitacion</h2>
+                <p className="text-gray-500 text-sm mt-2">Cada codigo expira en 24 horas y solo puede usarse una vez.</p>
+              </div>
+              <button onClick={generarCodigoVip} className="btn-gold text-xs uppercase tracking-widest px-5 py-3">
+                Generar codigo de invitacion
+              </button>
+            </div>
+
+            {cargandoCodigosVip ? (
+              <div className="text-center py-20 bg-dark-card border border-dark-border rounded-xl">
+                <p className="text-gray-500">Cargando codigos...</p>
+              </div>
+            ) : codigosVip.length === 0 ? (
+              <div className="text-center py-20 bg-dark-card border border-dark-border rounded-xl">
+                <p className="text-gray-500">Aun no hay codigos VIP</p>
+              </div>
+            ) : codigosVip.map((codigo) => (
+              <div key={codigo.id} className="bg-dark-card border border-dark-border rounded-xl p-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-center">
+                  <div className="lg:col-span-2">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Codigo</p>
+                    <p className="text-white font-black tracking-widest">{codigo.codigo}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Estado</p>
+                    <span className={`inline-block text-xs uppercase tracking-widest px-3 py-1 rounded-full font-bold ${codigo.estado === "activo" ? "bg-gold text-black" : codigo.estado === "usado" ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300"}`}>
+                      {codigo.estado}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Creado</p>
+                    <p className="text-gray-400 text-sm">{new Date(codigo.creado_en).toLocaleString("es-CR")}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Expira / Usado por</p>
+                    <p className="text-gray-400 text-sm">{new Date(codigo.expira_en).toLocaleString("es-CR")}</p>
+                    {codigo.usado_por_nombre && <p className="text-gold text-sm font-bold mt-1">{codigo.usado_por_nombre}</p>}
+                  </div>
                 </div>
               </div>
             ))}
