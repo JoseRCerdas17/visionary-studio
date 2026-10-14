@@ -24,7 +24,6 @@ export const BARBEROS: Barbero[] = [
     especialidad: "Cortes modernos y atención al cliente",
     iniciales: "IB",
     horarios: [
-      "8:30 AM", "9:30 AM", "10:30 AM",
       "1:00 PM", "2:00 PM", "3:00 PM", "4:30 PM", "5:30 PM", "6:30 PM",
     ],
   },
