@@ -85,6 +85,106 @@ def ensure_cancelada_en_column():
             )
 
 
+def ensure_reserva_adicionales_column():
+    """Añade columna adicionales en bases existentes (SQLite / Postgres)."""
+    with engine.begin() as conn:
+        if _is_sqlite_url(DATABASE_URL):
+            rows = conn.execute(text("PRAGMA table_info(reservas)")).fetchall()
+            existing = {row[1] for row in rows}
+            if "adicionales" not in existing:
+                conn.execute(
+                    text("ALTER TABLE reservas ADD COLUMN adicionales VARCHAR")
+                )
+        else:
+            conn.execute(
+                text("ALTER TABLE reservas ADD COLUMN IF NOT EXISTS adicionales VARCHAR")
+            )
+
+
+def ensure_reserva_adicionales_precio_column():
+    """Añade columna adicionales_precio en bases existentes (SQLite / Postgres)."""
+    with engine.begin() as conn:
+        if _is_sqlite_url(DATABASE_URL):
+            rows = conn.execute(text("PRAGMA table_info(reservas)")).fetchall()
+            existing = {row[1] for row in rows}
+            if "adicionales_precio" not in existing:
+                conn.execute(
+                    text("ALTER TABLE reservas ADD COLUMN adicionales_precio INTEGER")
+                )
+        else:
+            conn.execute(
+                text("ALTER TABLE reservas ADD COLUMN IF NOT EXISTS adicionales_precio INTEGER")
+            )
+
+
+def ensure_club_miembro_email_column():
+    """Añade columna email en club_miembros para bases existentes (SQLite / Postgres)."""
+    with engine.begin() as conn:
+        if _is_sqlite_url(DATABASE_URL):
+            rows = conn.execute(text("PRAGMA table_info(club_miembros)")).fetchall()
+            existing = {row[1] for row in rows}
+            if existing and "email" not in existing:
+                conn.execute(
+                    text("ALTER TABLE club_miembros ADD COLUMN email VARCHAR")
+                )
+        else:
+            conn.execute(
+                text("ALTER TABLE club_miembros ADD COLUMN IF NOT EXISTS email VARCHAR")
+            )
+
+
+def ensure_club_miembro_recordatorio_column():
+    """Añade columna recordatorio_vencimiento_enviado en club_miembros (SQLite / Postgres)."""
+    with engine.begin() as conn:
+        if _is_sqlite_url(DATABASE_URL):
+            rows = conn.execute(text("PRAGMA table_info(club_miembros)")).fetchall()
+            existing = {row[1] for row in rows}
+            if existing and "recordatorio_vencimiento_enviado" not in existing:
+                conn.execute(
+                    text(
+                        "ALTER TABLE club_miembros ADD COLUMN recordatorio_vencimiento_enviado BOOLEAN DEFAULT 0 NOT NULL"
+                    )
+                )
+        else:
+            conn.execute(
+                text(
+                    "ALTER TABLE club_miembros ADD COLUMN IF NOT EXISTS recordatorio_vencimiento_enviado BOOLEAN DEFAULT FALSE NOT NULL"
+                )
+            )
+
+
+def ensure_club_miembro_barbero_column():
+    """Añade columna barbero en club_miembros (SQLite / Postgres). Las filas existentes quedan en 'Alonso Lobo'."""
+    with engine.begin() as conn:
+        if _is_sqlite_url(DATABASE_URL):
+            rows = conn.execute(text("PRAGMA table_info(club_miembros)")).fetchall()
+            existing = {row[1] for row in rows}
+            if existing and "barbero" not in existing:
+                conn.execute(
+                    text("ALTER TABLE club_miembros ADD COLUMN barbero VARCHAR DEFAULT 'Alonso Lobo' NOT NULL")
+                )
+        else:
+            conn.execute(
+                text("ALTER TABLE club_miembros ADD COLUMN IF NOT EXISTS barbero VARCHAR DEFAULT 'Alonso Lobo' NOT NULL")
+            )
+
+
+def ensure_club_grupo_barbero_column():
+    """Añade columna barbero en club_grupos (SQLite / Postgres). Las filas existentes quedan en 'Alonso Lobo'."""
+    with engine.begin() as conn:
+        if _is_sqlite_url(DATABASE_URL):
+            rows = conn.execute(text("PRAGMA table_info(club_grupos)")).fetchall()
+            existing = {row[1] for row in rows}
+            if existing and "barbero" not in existing:
+                conn.execute(
+                    text("ALTER TABLE club_grupos ADD COLUMN barbero VARCHAR DEFAULT 'Alonso Lobo' NOT NULL")
+                )
+        else:
+            conn.execute(
+                text("ALTER TABLE club_grupos ADD COLUMN IF NOT EXISTS barbero VARCHAR DEFAULT 'Alonso Lobo' NOT NULL")
+            )
+
+
 def ensure_stamp_card_barbero_column():
     """Añade columna barbero en stamp_cards para bases existentes (SQLite / Postgres)."""
     with engine.begin() as conn:

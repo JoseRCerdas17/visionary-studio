@@ -3,13 +3,31 @@ import os
 
 resend.api_key = os.getenv("RESEND_API_KEY")
 
-def enviar_confirmacion_cliente(nombre: str, email: str, servicio: str, precio: str, fecha: str, hora: str, barbero: str, reserva_id: int):
+def enviar_confirmacion_cliente(nombre: str, email: str, servicio: str, precio: str, fecha: str, hora: str, barbero: str, reserva_id: int, adicionales: list = None, adicionales_precio: int = 0):
     try:
         maps_url = "https://maps.app.goo.gl/zcfrCQAJDv4KLDfb9"
         whatsapp_url = "https://wa.me/50662009558"
         instagram_url = "https://www.instagram.com/lobo_barbero"
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
         cancelar_url = f"{frontend_url}/cancelar?id={reserva_id}"
+
+        def _monto(precio_str: str) -> int:
+            digitos = "".join(ch for ch in (precio_str or "") if ch.isdigit())
+            return int(digitos) if digitos else 0
+
+        total = _monto(precio) + (adicionales_precio or 0)
+        total_texto = f"₡{total:,}"
+
+        adicionales_html = ""
+        if adicionales:
+            adicionales_texto = ", ".join(adicionales)
+            if adicionales_precio:
+                adicionales_texto += f" · ₡{adicionales_precio:,}"
+            adicionales_html = f"""
+        <tr style="border-bottom:1px solid #2A2A2A;">
+          <td style="color:#666;padding:12px 0;font-size:14px;">Adicionales</td>
+          <td style="color:#fff;padding:12px 0;font-size:14px;font-weight:bold;text-align:right;">{adicionales_texto}</td>
+        </tr>"""
 
         resend.Emails.send({
             "from": "Visionary Studio <reservas@visionarystudiobarbershop.com>",
@@ -56,10 +74,10 @@ def enviar_confirmacion_cliente(nombre: str, email: str, servicio: str, precio: 
         <tr style="border-bottom:1px solid #2A2A2A;">
           <td style="color:#666;padding:12px 0;font-size:14px;">Barbero</td>
           <td style="color:#fff;padding:12px 0;font-size:14px;font-weight:bold;text-align:right;">{barbero}</td>
-        </tr>
+        </tr>{adicionales_html}
         <tr>
           <td style="color:#666;padding:12px 0;font-size:14px;">Total</td>
-          <td style="color:#C9A035;padding:12px 0;font-size:22px;font-weight:900;text-align:right;">{precio}</td>
+          <td style="color:#C9A035;padding:12px 0;font-size:22px;font-weight:900;text-align:right;">{total_texto}</td>
         </tr>
       </table>
     </div>

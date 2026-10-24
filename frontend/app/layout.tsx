@@ -1,6 +1,5 @@
 "use client";
 
-import type { Metadata } from "next";
 import { Montserrat, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import WhatsAppButton from "./components/ui/WhatsAppButton";
@@ -24,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const esHome = pathname === "/";
 
   return (
-    <html lang="es">
+    <html lang="es" data-scroll-behavior="smooth">
       <body className={`${montserrat.variable} ${playfair.variable} ${montserrat.className} bg-dark text-white antialiased`}>
         {children}
         {esHome && <StampCardButton />}

@@ -1,15 +1,21 @@
+import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from emails import enviar_confirmacion_cliente
 from sqlalchemy.orm import Session
 from database.connection import get_db
 from models.reserva import Reserva
+from models.club import ClubMiembro
 from pydantic import BaseModel
 from routers.auth import get_admin_actual, get_usuario_actual, TokenData
 
 DIAS_RETENCION_CANCELADAS = 7
+
+HORARIOS_EXCLUSIVOS_MIEMBRO = {"2:30 PM", "7:00 PM"}
+
+CR_TZ = timezone(timedelta(hours=-6))
 
 router = APIRouter(prefix="/reservas", tags=["reservas"])
 logger = logging.getLogger(__name__)
@@ -23,6 +29,8 @@ class ReservaCreate(BaseModel):
     precio: str
     fecha: str
     hora: str
+    adicionales: list[str] = []
+    adicionales_precio: int = 0
 
 class ReservaResponse(BaseModel):
     id: int
@@ -35,6 +43,9 @@ class ReservaResponse(BaseModel):
     fecha: str
     hora: str
     estado: str
+    metodo_pago: str | None = None
+    adicionales: str | None = None
+    adicionales_precio: int | None = None
     cancelada_en: datetime | None = None
 
     class Config:
@@ -61,7 +72,30 @@ def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
             detail="Ya existe una reserva para esa fecha y hora"
         )
     
-    nueva_reserva = Reserva(**reserva.model_dump())
+    if reserva.barbero == "Alonso Lobo" and reserva.hora in HORARIOS_EXCLUSIVOS_MIEMBRO:
+        miembro = (
+            db.query(ClubMiembro)
+            .filter(ClubMiembro.telefono == reserva.telefono.strip())
+            .first()
+        )
+        activo = (
+            miembro is not None
+            and miembro.barbero == reserva.barbero
+            and miembro.estado == "activo"
+            and miembro.fecha_inicio is not None
+            and miembro.qr_token is not None
+            and (miembro.fecha_vencimiento is None or miembro.fecha_vencimiento >= datetime.now(CR_TZ).replace(tzinfo=None))
+        )
+        if not activo:
+            raise HTTPException(
+                status_code=403,
+                detail="Este horario es exclusivo para miembros activos de Visionary Club",
+            )
+    
+    datos = reserva.model_dump()
+    adicionales = datos.pop("adicionales", None) or []
+    datos["adicionales"] = json.dumps(adicionales) if adicionales else None
+    nueva_reserva = Reserva(**datos)
     db.add(nueva_reserva)
     db.commit()
     db.refresh(nueva_reserva)
@@ -75,6 +109,8 @@ def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
             hora=reserva.hora,
             barbero=reserva.barbero,
             reserva_id=nueva_reserva.id,
+            adicionales=adicionales,
+            adicionales_precio=reserva.adicionales_precio or 0,
         )
     except Exception:
         logger.exception("Error enviando correos para reserva id=%s", nueva_reserva.id)
@@ -196,7 +232,7 @@ class EstadoUpdate(BaseModel):
     metodo_pago: str = None
 
 @router.patch("/{reserva_id}")
-def actualizar_estado(reserva_id: int, body: EstadoUpdate, db: Session = Depends(get_db)):
+def actualizar_estado(reserva_id: int, body: EstadoUpdate, _: TokenData = Depends(get_usuario_actual), db: Session = Depends(get_db)):
     reserva = db.query(Reserva).filter(Reserva.id == reserva_id).first()
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
@@ -208,7 +244,7 @@ def actualizar_estado(reserva_id: int, body: EstadoUpdate, db: Session = Depends
 
 
 @router.delete("/{reserva_id}")
-def cancelar_reserva(reserva_id: int, db: Session = Depends(get_db)):
+def cancelar_reserva(reserva_id: int, _: TokenData = Depends(get_usuario_actual), db: Session = Depends(get_db)):
     reserva = db.query(Reserva).filter(Reserva.id == reserva_id).first()
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")

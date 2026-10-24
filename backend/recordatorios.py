@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import resend
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from database.connection import SessionLocal
 from models.reserva import Reserva
+from models.club import ClubMiembro, ClubPlan
 from recordatorios_logic import (
     CR_TZ,
     MAX_SEGUNDOS_ANTES_UNA_HORA,
@@ -259,6 +260,167 @@ def verificar_recordatorios():
         db.close()
 
 
+def enviar_recordatorio_vencimientos(miembros: list) -> bool:
+    """Envía a Lobo un resumen de membresías del club que vencen pronto."""
+    if not os.getenv("RESEND_API_KEY"):
+        _logger.error("RESEND_API_KEY ausente; no se puede enviar resumen de vencimientos")
+        return False
+    admin_email = os.getenv("ADMIN_EMAIL", "jose12roberto17@gmail.com")
+
+    filas = ""
+    for m in miembros:
+        filas += f"""
+        <tr style="border-bottom:1px solid #2A2A2A;">
+          <td style="color:#fff;padding:12px 8px;font-size:14px;font-weight:bold;">{m['nombre']}</td>
+          <td style="color:#888;padding:12px 8px;font-size:14px;">{m['telefono']}</td>
+          <td style="color:#888;padding:12px 8px;font-size:14px;">{m['plan']}</td>
+          <td style="color:#C9A035;padding:12px 8px;font-size:14px;font-weight:bold;text-align:right;">{m['fecha']} ({m['dias']}d)</td>
+        </tr>"""
+
+    try:
+        resend.Emails.send(
+            {
+                "from": "Visionary Studio <reservas@visionarystudiobarbershop.com>",
+                "to": admin_email,
+                "subject": f"Visionary Club — {len(miembros)} membresía(s) por vencer",
+                "html": f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background-color:#0A0A0A;font-family:Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;background-color:#0A0A0A;">
+    <div style="background:linear-gradient(135deg,#1A1A1A 0%,#0A0A0A 100%);padding:40px 32px;text-align:center;border-bottom:2px solid #C9A035;">
+      <h1 style="color:#C9A035;font-size:28px;letter-spacing:6px;text-transform:uppercase;margin:0;font-weight:900;">VISIONARY STUDIO</h1>
+      <p style="color:#E8B84B;font-size:14px;letter-spacing:3px;margin:6px 0 0;font-style:italic;">Visionary Club · Vencimientos</p>
+    </div>
+    <div style="background:#111;padding:32px;">
+      <p style="color:#C9A035;font-size:11px;letter-spacing:4px;text-transform:uppercase;margin:0 0 20px;">Membresías por vencer (próximos 7 días)</p>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr style="border-bottom:1px solid #2A2A2A;">
+          <td style="color:#666;padding:12px 8px;font-size:12px;text-transform:uppercase;">Miembro</td>
+          <td style="color:#666;padding:12px 8px;font-size:12px;text-transform:uppercase;">Teléfono</td>
+          <td style="color:#666;padding:12px 8px;font-size:12px;text-transform:uppercase;">Plan</td>
+          <td style="color:#666;padding:12px 8px;font-size:12px;text-transform:uppercase;text-align:right;">Vence</td>
+        </tr>{filas}
+      </table>
+      <p style="color:#888;font-size:13px;margin:24px 0 0;line-height:1.6;">Contacta a cada miembro por WhatsApp desde el panel para renovar su membresía.</p>
+    </div>
+    <div style="background:#0A0A0A;padding:24px 32px;text-align:center;">
+      <p style="color:#444;font-size:11px;margin:0;">Este correo fue enviado automáticamente.</p>
+    </div>
+  </div>
+</body>
+</html>
+                """,
+            }
+        )
+        _logger.info("Resumen de vencimientos enviado a %s (%d miembros)", admin_email, len(miembros))
+        return True
+    except Exception as e:
+        _logger.exception("Error enviando resumen de vencimientos: %s", e)
+        return False
+
+
+def enviar_recordatorio_vencimiento_miembro(nombre: str, email: str, fecha_vencimiento, plan: str) -> bool:
+    """Envía al miembro un recordatorio de que su membresía está por vencer."""
+    if not os.getenv("RESEND_API_KEY"):
+        return False
+    fecha_texto = fecha_vencimiento.strftime("%d/%m/%Y")
+    try:
+        resend.Emails.send(
+            {
+                "from": "Visionary Studio <reservas@visionarystudiobarbershop.com>",
+                "to": email,
+                "subject": "Tu membresía Visionary Club vence pronto",
+                "html": f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background-color:#0A0A0A;font-family:Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;background-color:#0A0A0A;">
+    <div style="background:linear-gradient(135deg,#1A1A1A 0%,#0A0A0A 100%);padding:40px 32px;text-align:center;border-bottom:2px solid #C9A035;">
+      <h1 style="color:#C9A035;font-size:28px;letter-spacing:6px;text-transform:uppercase;margin:0;font-weight:900;">VISIONARY STUDIO</h1>
+      <p style="color:#E8B84B;font-size:14px;letter-spacing:3px;margin:6px 0 0;font-style:italic;">Visionary Club</p>
+    </div>
+    <div style="background:#1A1A1A;padding:24px 32px;text-align:center;border-bottom:1px solid #2A2A2A;">
+      <p style="color:#888;font-size:14px;margin:0;line-height:1.6;">
+        Hola <strong style="color:#fff;">{nombre}</strong>, tu membresía
+        <strong style="color:#C9A035;">{plan}</strong> vence el
+        <strong style="color:#fff;">{fecha_texto}</strong>.
+      </p>
+    </div>
+    <div style="background:#111;padding:32px;text-align:center;border-bottom:1px solid #2A2A2A;">
+      <p style="color:#888;font-size:13px;margin:0 0 20px;line-height:1.6;">Renueva para no perder tus cortes y beneficios exclusivos.</p>
+      <a href="https://wa.me/50662009558" target="_blank" style="display:inline-block;background:#25D366;color:#fff;font-weight:bold;font-size:13px;padding:12px 24px;border-radius:4px;text-decoration:none;">💬 Renovar por WhatsApp</a>
+    </div>
+    <div style="background:#0A0A0A;padding:24px 32px;text-align:center;">
+      <p style="color:#444;font-size:11px;margin:0;">Este correo fue enviado automáticamente.</p>
+    </div>
+  </div>
+</body>
+</html>
+                """,
+            }
+        )
+        _logger.info("Recordatorio de vencimiento enviado a %s (%s)", email, nombre)
+        return True
+    except Exception as e:
+        _logger.exception("Error enviando recordatorio de vencimiento a %s: %s", email, e)
+        return False
+
+
+def verificar_vencimientos_club():
+    """Revisa membresías del club activas que vencen en los próximos 7 días."""
+    db: Session = SessionLocal()
+    try:
+        ahora = datetime.now(CR_TZ).replace(tzinfo=None)
+        limite = ahora + timedelta(days=7)
+        miembros = (
+            db.query(ClubMiembro)
+            .filter(
+                ClubMiembro.estado == "activo",
+                ClubMiembro.fecha_vencimiento != None,
+                ClubMiembro.fecha_vencimiento <= limite,
+                ClubMiembro.fecha_vencimiento >= ahora,
+            )
+            .order_by(ClubMiembro.fecha_vencimiento)
+            .all()
+        )
+        if not miembros:
+            _logger.info("Sin membresías del club por vencer próximamente")
+            return
+
+        payload = []
+        limite_directo = ahora + timedelta(days=3)
+        for m in miembros:
+            plan = db.query(ClubPlan).filter(ClubPlan.id == m.plan_id).first()
+            plan_nombre = plan.nombre if plan else "—"
+            dias = max((m.fecha_vencimiento - ahora).days, 0)
+            payload.append(
+                {
+                    "nombre": m.nombre,
+                    "telefono": m.telefono,
+                    "plan": plan_nombre,
+                    "fecha": m.fecha_vencimiento.strftime("%d/%m/%Y"),
+                    "dias": dias,
+                }
+            )
+            # Recordatorio directo al miembro (solo si tiene email y aún no se le avisó).
+            if (
+                m.email
+                and not m.recordatorio_vencimiento_enviado
+                and m.fecha_vencimiento <= limite_directo
+            ):
+                if enviar_recordatorio_vencimiento_miembro(m.nombre, m.email, m.fecha_vencimiento, plan_nombre):
+                    m.recordatorio_vencimiento_enviado = True
+                    db.commit()
+        enviar_recordatorio_vencimientos(payload)
+    except Exception:
+        _logger.exception("Error en verificación de vencimientos del club")
+    finally:
+        db.close()
+
+
 def iniciar_scheduler():
     if os.getenv("DISABLE_REMINDER_SCHEDULER", "").strip().lower() in _ENV_TRUE:
         _logger.info(
@@ -275,6 +437,18 @@ def iniciar_scheduler():
         coalesce=True,
         max_instances=1,
         id="recordatorios_visionary",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        verificar_vencimientos_club,
+        "cron",
+        hour=10,
+        minute=0,
+        timezone=TZ_CR,
+        misfire_grace_time=3600,
+        coalesce=True,
+        max_instances=1,
+        id="vencimientos_club_visionary",
         replace_existing=True,
     )
     scheduler.start()

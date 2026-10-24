@@ -23,6 +23,12 @@ function esCuentaIan(username: string, barbero: string | null) {
   return barbero === IAN_BARBERO || normalized.includes("ian") || normalized === "admin2";
 }
 
+function obtenerBarberoClub(usuarioInfo: { rol: string; barbero: string | null } | null, perfilActual: string): string | null {
+  if (!usuarioInfo) return null;
+  if (usuarioInfo.rol !== "admin") return usuarioInfo.barbero || IAN_BARBERO;
+  return perfilActual === LOBO_BARBERO || perfilActual === IAN_BARBERO ? perfilActual : null;
+}
+
 interface Reserva {
   id: number;
   nombre: string;
@@ -35,6 +41,8 @@ interface Reserva {
   hora: string;
   estado: string;
   metodo_pago: string | null;
+  adicionales: string | null;
+  adicionales_precio: number | null;
   cancelada_en: string | null;
 }
 
@@ -46,14 +54,78 @@ interface Resena {
   creado_en: string;
 }
 
-interface CodigoVip {
+interface ClubPlan {
   id: number;
-  codigo: string;
-  creado_en: string;
-  expira_en: string;
-  usado: boolean;
-  usado_por_nombre: string | null;
-  estado: "activo" | "usado" | "expirado";
+  nombre: string;
+  precio: number;
+  activo: boolean;
+  servicios: { cortes: number; barbas: number; mascarilla: boolean };
+  cupo_max: number | null;
+  miembros_activos: number;
+  promo_restantes: number;
+  creado_en: string | null;
+}
+
+interface ClubMiembro {
+  id: number;
+  nombre: string;
+  telefono: string;
+  email: string | null;
+  barbero: string;
+  plan_id: number;
+  plan_nombre: string | null;
+  plan_precio: number | null;
+  estado: string;
+  fecha_inicio: string | null;
+  fecha_vencimiento: string | null;
+  qr_token: string | null;
+  balance: { cortes: number; barbas: number; mascarilla: number };
+  grupo_id: number | null;
+  mascarilla_promo?: boolean;
+  pagos?: { id: number; monto: number; metodo: string; referencia: string | null; fecha: string | null }[];
+  consumos?: { id: number; servicio: string; fecha: string | null; anulado: boolean; motivo_anulacion: string | null }[];
+}
+
+interface ClubGrupo {
+  id: number;
+  nombre_grupo: string;
+  plan_nombre: string | null;
+  pago_total: number;
+  fecha_pago: string | null;
+  activo: boolean;
+  miembros: ClubMiembro[];
+}
+
+interface ClubStats {
+  miembros_activos: number;
+  pagos_mes_total: number;
+  pagos_mes_cantidad: number;
+  servicios_mes: number;
+  por_vencer: ClubMiembro[];
+}
+
+interface PagoSilla {
+  id: number;
+  monto: number;
+  fecha: string | null;
+  nota: string | null;
+}
+
+interface Gasto {
+  id: number;
+  descripcion: string;
+  monto: number;
+  fecha: string | null;
+}
+
+interface ClubPago {
+  id: number;
+  miembro_id: number;
+  barbero: string | null;
+  monto: number;
+  metodo: string;
+  fecha: string | null;
+  referencia: string | null;
 }
 
 type QrData = {
@@ -69,8 +141,49 @@ const VISTAS = [
   { id: "ingresos", label: "Ingresos" },
   { id: "canceladas", label: "Canceladas" },
   { id: "reseñas", label: "Reseñas" },
-  { id: "vip", label: "VIP" },
+  { id: "club", label: "Club" },
+  { id: "silla", label: "Silla" },
+  { id: "gastos", label: "Gastos" },
 ] as const;
+
+const VISTAS_LOBO = new Set(["silla", "gastos"]);
+
+function GastosSeccion({ total, lista }: { total: number; lista: Gasto[] }) {
+  return (
+    <div className="bg-dark-card border border-red-900 rounded-xl p-5">
+      <div className="flex items-center justify-between">
+        <p className="text-red-400 text-xs uppercase tracking-wider">Gastos del período</p>
+        <p className="text-red-400 font-black text-xl">₡{total.toLocaleString("es-CR")}</p>
+      </div>
+      {lista.length === 0 ? (
+        <p className="text-gray-600 text-sm mt-3">Sin gastos en este período.</p>
+      ) : (
+        <div className="mt-3 flex flex-col gap-2">
+          {lista.map((g) => (
+            <div key={g.id} className="flex items-center justify-between text-sm border-b border-dark-border pb-2">
+              <div>
+                <p className="text-white/80">{g.descripcion}</p>
+                <p className="text-gray-600 text-xs">{g.fecha ? new Date(g.fecha + "T00:00:00").toLocaleDateString("es-CR") : "—"}</p>
+              </div>
+              <p className="text-red-300 font-bold">-₡{g.monto.toLocaleString("es-CR")}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GananciaNetaCard({ total, ingresos, gastos }: { total: number; ingresos: number; gastos: number }) {
+  const positiva = total >= 0;
+  return (
+    <div className={`bg-dark-card border-2 rounded-xl p-6 ${positiva ? "border-gold" : "border-red-700"}`}>
+      <p className="text-gray-400 text-xs uppercase tracking-[0.2em] font-bold">Ganancia Neta</p>
+      <p className={`font-black text-4xl mt-2 ${positiva ? "text-gold" : "text-red-400"}`}>₡{total.toLocaleString("es-CR")}</p>
+      <p className="text-gray-500 text-sm mt-2">₡{ingresos.toLocaleString("es-CR")} ingresos − ₡{gastos.toLocaleString("es-CR")} gastos</p>
+    </div>
+  );
+}
 
 const DIAS_RETENCION_CANCELADAS = 7;
 
@@ -80,12 +193,17 @@ const PERIODOS_INGRESOS = [
   { id: "mes", label: "Este mes" },
 ] as const;
 
+const MESES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+] as const;
+
 export default function Admin() {
   const [reservas, setReservas] = useState<Reserva[]>([]);
   const [cargando, setCargando] = useState(true);
   const [filtro, setFiltro] = useState("pendiente");
   const [busqueda, setBusqueda] = useState("");
-  const [vista, setVista] = useState<"lista" | "calendario" | "ingresos" | "canceladas" | "reseñas" | "vip">("lista");
+  const [vista, setVista] = useState<"lista" | "calendario" | "ingresos" | "canceladas" | "reseñas" | "club" | "silla" | "gastos">("lista");
   const [modalReserva, setModalReserva] = useState<Reserva | null>(null);
   const [metodoPago, setMetodoPago] = useState<"sinpe" | "efectivo" | "mixto" | null>(null);
   const [montoPagoMetodo, setMontoPagoMetodo] = useState<string>("");
@@ -95,6 +213,7 @@ export default function Admin() {
   const [montoDolares, setMontoDolares] = useState<string>("");
   const [montoMixtoEfectivo, setMontoMixtoEfectivo] = useState<string>("");
   const [periodoIngresos, setPeriodoIngresos] = useState<"dia" | "semana" | "mes">("dia");
+  const [mesIngresos, setMesIngresos] = useState({ mes: new Date().getMonth() + 1, anio: new Date().getFullYear() });
   const [procesandoHorario, setProcesandoHorario] = useState<string | null>(null);
   const [procesandoMasivo, setProcesandoMasivo] = useState<"bloquear" | "desbloquear" | null>(null);
   const router = useRouter();
@@ -113,14 +232,39 @@ export default function Admin() {
   const [cargandoQrSellos, setCargandoQrSellos] = useState(false);
   const [errorQrSellos, setErrorQrSellos] = useState("");
   const [qrSellosBarbero, setQrSellosBarbero] = useState<"Lobo" | "Ian">("Lobo");
-  const [codigosVip, setCodigosVip] = useState<CodigoVip[]>([]);
-  const [cargandoCodigosVip, setCargandoCodigosVip] = useState(false);
-  const [codigoVipGenerado, setCodigoVipGenerado] = useState<CodigoVip | null>(null);
+  const [planes, setPlanes] = useState<ClubPlan[]>([]);
+  const [miembros, setMiembros] = useState<ClubMiembro[]>([]);
+  const [grupos, setGrupos] = useState<ClubGrupo[]>([]);
+  const [statsClub, setStatsClub] = useState<ClubStats | null>(null);
+  const [cargandoClub, setCargandoClub] = useState(false);
+  const [busquedaMiembro, setBusquedaMiembro] = useState("");
+  const [filtroEstadoClub, setFiltroEstadoClub] = useState("todas");
+  const [modalDetalleMiembro, setModalDetalleMiembro] = useState<ClubMiembro | null>(null);
+  const [modalPagoMiembro, setModalPagoMiembro] = useState<ClubMiembro | null>(null);
+  const [modalGrupo, setModalGrupo] = useState(false);
+  const [modalEscanearQr, setModalEscanearQr] = useState(false);
+  const [modalNuevoMiembro, setModalNuevoMiembro] = useState(false);
+  const [telefonosClub, setTelefonosClub] = useState<Set<string>>(new Set());
+  const [formNuevoMiembro, setFormNuevoMiembro] = useState({ nombre: "", telefono: "", email: "", plan_id: 0, barbero: "" });
+  const [formPago, setFormPago] = useState({ metodo: "sinpe", monto: "", referencia: "" });
+  const [formGrupo, setFormGrupo] = useState({ nombre_grupo: "", metodo: "sinpe", monto: "", barbero: "", miembros: Array.from({ length: 5 }, () => ({ nombre: "", telefono: "" })) });
+  const [formQrToken, setFormQrToken] = useState("");
+  const [qrMiembro, setQrMiembro] = useState<ClubMiembro | null>(null);
+  const [cargandoQrMiembro, setCargandoQrMiembro] = useState(false);
+  const [modalEditarPlan, setModalEditarPlan] = useState<ClubPlan | null>(null);
+  const [formPlan, setFormPlan] = useState({ precio: "", cortes: "", barbas: "" });
+  const [pagosSilla, setPagosSilla] = useState<PagoSilla[]>([]);
+  const [gastos, setGastos] = useState<Gasto[]>([]);
+  const [clubPagos, setClubPagos] = useState<ClubPago[]>([]);
+  const [formSilla, setFormSilla] = useState({ monto: "", nota: "" });
+  const [formGasto, setFormGasto] = useState({ descripcion: "", monto: "" });
 
   const barberoBloqueo = getBarbero(barberoBloqueoId);
   const horariosBarbero = getHorariosBarbero(barberoBloqueoId);
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  const barberoClubActual = obtenerBarberoClub(usuarioInfo, perfilActual);
 
   const cargarQrSellos = useCallback(async (barbero: "Lobo" | "Ian") => {
     setCargandoQrSellos(true);
@@ -162,16 +306,76 @@ export default function Admin() {
     }
   }, [API]);
 
-  const cargarCodigosVip = useCallback(async () => {
+  const cargarClub = useCallback(async (barbero?: string | null) => {
     const token = localStorage.getItem("admin_token");
     if (!token) return;
-    setCargandoCodigosVip(true);
+    setCargandoClub(true);
+    const bq = barbero ? `?barbero=${encodeURIComponent(barbero)}` : "";
     try {
-      const res = await fetch(`${API}/vip/codigos`, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      setCodigosVip(Array.isArray(data) ? data : []);
+      const [planesRes, miembrosRes, gruposRes, statsRes] = await Promise.all([
+        fetch(`${API}/club/planes${bq}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/club/miembros${bq}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/club/grupos${bq}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/club/stats${bq}`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const planesData = await planesRes.json().catch(() => []);
+      const miembrosData = await miembrosRes.json().catch(() => []);
+      const gruposData = await gruposRes.json().catch(() => []);
+      const statsData = await statsRes.json().catch(() => null);
+      setPlanes(Array.isArray(planesData) ? planesData : []);
+      setMiembros(Array.isArray(miembrosData) ? miembrosData : []);
+      setGrupos(Array.isArray(gruposData) ? gruposData : []);
+      setStatsClub(statsData);
+      if (Array.isArray(miembrosData)) {
+        setTelefonosClub(new Set(miembrosData.map((m: ClubMiembro) => m.telefono.replace(/[^0-9]/g, ""))));
+      }
     } finally {
-      setCargandoCodigosVip(false);
+      setCargandoClub(false);
+    }
+  }, [API]);
+
+  const cargarTelefonosClub = useCallback(async (barbero?: string | null) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    try {
+      const bq = barbero ? `?barbero=${encodeURIComponent(barbero)}` : "";
+      const res = await fetch(`${API}/club/miembros${bq}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setTelefonosClub(new Set(data.map((m: ClubMiembro) => m.telefono.replace(/[^0-9]/g, ""))));
+      }
+    } catch {
+      // ignore
+    }
+  }, [API]);
+
+  const cargarFinanzas = useCallback(async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    try {
+      const [sillaRes, gastosRes] = await Promise.all([
+        fetch(`${API}/finanzas/silla`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/finanzas/gastos`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const sillaData = await sillaRes.json().catch(() => []);
+      const gastosData = await gastosRes.json().catch(() => []);
+      setPagosSilla(Array.isArray(sillaData) ? sillaData : []);
+      setGastos(Array.isArray(gastosData) ? gastosData : []);
+    } catch {
+      // ignore
+    }
+  }, [API]);
+
+  const cargarClubPagos = useCallback(async (barbero?: string | null) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    try {
+      const bq = barbero ? `?barbero=${encodeURIComponent(barbero)}` : "";
+      const res = await fetch(`${API}/club/pagos${bq}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => []);
+      setClubPagos(Array.isArray(data) ? data : []);
+    } catch {
+      // ignore
     }
   }, [API]);
 
@@ -234,10 +438,19 @@ export default function Admin() {
   }, [vista, cargarReseñas]);
 
   useEffect(() => {
-    if (vista === "vip") {
-      cargarCodigosVip().catch(() => undefined);
+    if (vista === "club") {
+      cargarClub(barberoClubActual).catch(() => undefined);
     }
-  }, [vista, cargarCodigosVip]);
+  }, [vista, cargarClub, barberoClubActual]);
+
+  useEffect(() => {
+    if (!usuarioInfo) return;
+    cargarTelefonosClub(barberoClubActual).catch(() => undefined);
+    cargarClubPagos(barberoClubActual).catch(() => undefined);
+    if (usuarioInfo.rol === "admin") {
+      cargarFinanzas().catch(() => undefined);
+    }
+  }, [usuarioInfo, barberoClubActual, cargarTelefonosClub, cargarClubPagos, cargarFinanzas]);
 
   useEffect(() => {
     if (!modalReserva) return;
@@ -273,7 +486,9 @@ export default function Admin() {
   useEffect(() => {
     if (!modalReserva || !metodoPago) return;
     if (metodoPago === "sinpe" || metodoPago === "efectivo") {
-      setMontoPagoMetodo(modalReserva.precio);
+      const base = parseInt(modalReserva.precio.replace(/[^0-9]/g, "")) || 0;
+      const total = base + (modalReserva.adicionales_precio ?? 0);
+      setMontoPagoMetodo("₡" + total.toLocaleString("es-CR"));
     }
   }, [metodoPago, modalReserva]);
 
@@ -400,29 +615,437 @@ export default function Admin() {
     setReseñas(reseñas.filter((r) => r.id !== id));
   };
 
-  const generarCodigoVip = async () => {
+  const togglePlan = async (planId: number) => {
     const token = localStorage.getItem("admin_token");
     if (!token) return;
+    const plan = planes.find((p) => p.id === planId);
+    if (plan?.activo && !confirm(`¿Desactivar el plan ${plan.nombre}?`)) return;
     try {
-      const res = await fetch(`${API}/vip/generar-codigo`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.detail || "No se pudo generar el codigo VIP");
-        return;
+      const res = await fetch(`${API}/club/planes/${planId}`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        setPlanes((prev) => prev.map((p) => (p.id === planId ? { ...p, activo: !p.activo } : p)));
       }
-      setCodigoVipGenerado(data);
-      setCodigosVip((prev) => [data, ...prev]);
     } catch {
-      alert("No se pudo generar el codigo VIP");
+      // ignore
     }
   };
 
-  const copiarCodigoVip = async () => {
-    if (!codigoVipGenerado) return;
-    await navigator.clipboard.writeText(codigoVipGenerado.codigo);
+  const guardarPlan = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token || !modalEditarPlan) return;
+    const precio = parseInt((formPlan.precio || "").replace(/[^0-9]/g, ""));
+    const cortes = parseInt((formPlan.cortes || "").replace(/[^0-9]/g, ""));
+    const barbas = parseInt((formPlan.barbas || "").replace(/[^0-9]/g, ""));
+    const body: Record<string, number> = {};
+    if (!Number.isNaN(precio) && precio > 0) body.precio = precio;
+    if (!Number.isNaN(cortes) && cortes >= 0) body.cortes = cortes;
+    if (!Number.isNaN(barbas) && barbas >= 0) body.barbas = barbas;
+    try {
+      const res = await fetch(`${API}/club/planes/${modalEditarPlan.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.detail || "No se pudo actualizar el plan");
+        return;
+      }
+      setModalEditarPlan(null);
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const crearMiembro = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    if (!formNuevoMiembro.nombre.trim() || !formNuevoMiembro.telefono.trim() || !formNuevoMiembro.plan_id) {
+      alert("Completa nombre, teléfono y plan.");
+      return;
+    }
+    const barbero = barberoClubActual || formNuevoMiembro.barbero;
+    if (!barbero) {
+      alert("Selecciona el barbero.");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/club/miembros`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ nombre: formNuevoMiembro.nombre.trim(), telefono: formNuevoMiembro.telefono.trim(), email: formNuevoMiembro.email.trim() || null, plan_id: formNuevoMiembro.plan_id, barbero }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.detail || "No se pudo crear el miembro");
+        return;
+      }
+      setMiembros((prev) => [data, ...prev]);
+      setModalNuevoMiembro(false);
+      setFormNuevoMiembro({ nombre: "", telefono: "", email: "", plan_id: 0, barbero: "" });
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const registrarPagoMiembro = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token || !modalPagoMiembro) return;
+    const monto = parseInt((formPago.monto || "").replace(/[^0-9]/g, "")) || 0;
+    if (monto <= 0) {
+      alert("Ingresa un monto válido.");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/club/miembros/${modalPagoMiembro.id}/pago`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ monto, metodo: formPago.metodo, referencia: formPago.referencia || null }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.detail || "No se pudo registrar el pago");
+        return;
+      }
+      setMiembros((prev) => prev.map((m) => (m.id === data.id ? data : m)));
+      setModalPagoMiembro(null);
+      setFormPago({ metodo: "sinpe", monto: "", referencia: "" });
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const abrirDetalleMiembro = async (id: number) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    try {
+      const res = await fetch(`${API}/club/miembros/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok) setModalDetalleMiembro(data);
+    } catch {
+      // ignore
+    }
+  };
+
+  const anularConsumo = async (consumoId: number) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token || !modalDetalleMiembro) return;
+    if (!confirm("¿Anular este consumo? Se restaurará el servicio al balance del miembro.")) return;
+    const motivo = prompt("Motivo de anulación (opcional):");
+    try {
+      const res = await fetch(`${API}/club/miembros/${modalDetalleMiembro.id}/anular-consumo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ consumo_id: consumoId, motivo }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(data?.detail || "No se pudo anular el consumo");
+        return;
+      }
+      await abrirDetalleMiembro(modalDetalleMiembro.id);
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const cambiarEstadoMiembro = async (id: number, estado: string) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    const miembro = miembros.find((m) => m.id === id);
+    if (estado === "suspendido" && miembro && !confirm(`¿Suspender a ${miembro.nombre}?`)) return;
+    try {
+      const res = await fetch(`${API}/club/miembros/${id}/estado`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ estado }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.detail || "No se pudo cambiar el estado");
+        return;
+      }
+      setMiembros((prev) => prev.map((m) => (m.id === data.id ? data : m)));
+      setTelefonosClub(new Set(miembros.filter((m) => m.estado === "activo").map((m) => m.telefono.replace(/[^0-9]/g, ""))));
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const regenerarQr = async (id: number) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    if (!confirm("¿Regenerar el código QR? El código anterior dejará de funcionar.")) return;
+    try {
+      const res = await fetch(`${API}/club/miembros/${id}/regenerar-qr`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.detail || "No se pudo regenerar el QR");
+        return;
+      }
+      await abrirDetalleMiembro(id);
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const toggleGrupo = async (grupoId: number) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    const grupo = grupos.find((g) => g.id === grupoId);
+    if (!grupo) return;
+    const nuevoActivo = !grupo.activo;
+    if (!nuevoActivo && !confirm(`¿Desactivar el grupo ${grupo.nombre_grupo}? Se suspenderán sus 5 miembros.`)) return;
+    try {
+      const res = await fetch(`${API}/club/grupos/${grupoId}/estado`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ activo: nuevoActivo }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(data?.detail || "No se pudo cambiar el estado del grupo");
+        return;
+      }
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const exportarMiembrosCsv = () => {
+    const filas = [["Nombre", "Teléfono", "Email", "Plan", "Estado", "Cortes", "Barbas", "Mascarilla", "Vence"]];
+    miembros.forEach((m) => {
+      filas.push([
+        m.nombre,
+        m.telefono,
+        m.email || "",
+        m.plan_nombre || "",
+        m.estado,
+        String(m.balance.cortes),
+        String(m.balance.barbas),
+        String(m.balance.mascarilla),
+        m.fecha_vencimiento ? new Date(m.fecha_vencimiento).toLocaleDateString("es-CR") : "",
+      ]);
+    });
+    const csv = filas.map((f) => f.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "miembros-club.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const registrarPagoSilla = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    const monto = parseInt((formSilla.monto || "").replace(/[^0-9]/g, ""));
+    if (!monto || monto <= 0) {
+      alert("Ingresa un monto válido.");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/finanzas/silla`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ monto, nota: formSilla.nota.trim() || null }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(data?.detail || "No se pudo registrar el pago");
+        return;
+      }
+      setFormSilla({ monto: "", nota: "" });
+      cargarFinanzas().catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const eliminarPagoSilla = async (id: number) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    if (!confirm("¿Eliminar este pago de silla?")) return;
+    try {
+      const res = await fetch(`${API}/finanzas/silla/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(data?.detail || "No se pudo eliminar");
+        return;
+      }
+      cargarFinanzas().catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const registrarGasto = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    const monto = parseInt((formGasto.monto || "").replace(/[^0-9]/g, ""));
+    if (!formGasto.descripcion.trim()) {
+      alert("Ingresa una descripción.");
+      return;
+    }
+    if (!monto || monto <= 0) {
+      alert("Ingresa un monto válido.");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/finanzas/gastos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ descripcion: formGasto.descripcion.trim(), monto }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(data?.detail || "No se pudo registrar el gasto");
+        return;
+      }
+      setFormGasto({ descripcion: "", monto: "" });
+      cargarFinanzas().catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const eliminarGasto = async (id: number) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    if (!confirm("¿Eliminar este gasto?")) return;
+    try {
+      const res = await fetch(`${API}/finanzas/gastos/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(data?.detail || "No se pudo eliminar");
+        return;
+      }
+      cargarFinanzas().catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const crearGrupo = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    if (!formGrupo.nombre_grupo.trim()) {
+      alert("Ingresa el nombre del grupo.");
+      return;
+    }
+    const miembros = formGrupo.miembros.filter((m) => m.nombre.trim() && m.telefono.trim());
+    if (miembros.length !== 5) {
+      alert("El grupo debe tener 5 miembros con nombre y teléfono.");
+      return;
+    }
+    const barbero = barberoClubActual || formGrupo.barbero;
+    if (!barbero) {
+      alert("Selecciona el barbero.");
+      return;
+    }
+    if (!confirm(`¿Crear el grupo ${formGrupo.nombre_grupo.trim()} con 5 miembros?`)) return;
+    try {
+      const res = await fetch(`${API}/club/grupos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          nombre_grupo: formGrupo.nombre_grupo.trim(),
+          metodo: formGrupo.metodo,
+          monto: formGrupo.monto ? parseInt(formGrupo.monto.replace(/[^0-9]/g, "")) || null : null,
+          barbero,
+          miembros,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.detail || "No se pudo crear el grupo");
+        return;
+      }
+      setModalGrupo(false);
+      setFormGrupo({ nombre_grupo: "", metodo: "sinpe", monto: "", barbero: "", miembros: Array.from({ length: 5 }, () => ({ nombre: "", telefono: "" })) });
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const escanearQr = async () => {
+    const input = formQrToken.trim();
+    if (!input) return;
+    // Acepta token crudo o URL completa (/club/qr/{token}).
+    const match = input.match(/\/club\/qr\/([^/?#]+)/);
+    const token = match ? match[1] : input;
+    const authToken = localStorage.getItem("admin_token");
+    setCargandoQrMiembro(true);
+    try {
+      const res = await fetch(`${API}/club/qr/${encodeURIComponent(token)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setQrMiembro(null);
+        alert(data?.detail || data?.error || "QR inválido");
+        return;
+      }
+      setQrMiembro(data);
+    } catch {
+      setQrMiembro(null);
+      alert("No se pudo leer el QR");
+    } finally {
+      setCargandoQrMiembro(false);
+    }
+  };
+
+  const consumirDesdeQr = async (servicio: string) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token || !qrMiembro) return;
+    try {
+      const res = await fetch(`${API}/club/miembros/${qrMiembro.id}/consumo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ servicio }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.detail || "No se pudo registrar el consumo");
+        return;
+      }
+      setQrMiembro(data);
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const enlaceWhatsAppMiembro = (m: ClubMiembro) => {
+    const mensaje = `Hola ${m.nombre} 👋 Tu membresía Visionary Club está activa. Consulta tu tarjeta aquí: https://visionarystudiobarbershop.com/club — Vigencia: ${m.fecha_inicio ? new Date(m.fecha_inicio).toLocaleDateString("es-CR") : "—"} al ${m.fecha_vencimiento ? new Date(m.fecha_vencimiento).toLocaleDateString("es-CR") : "—"}`;
+    window.open(`https://wa.me/506${m.telefono.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(mensaje)}`, "_blank");
+  };
+
+  const esReservaClub = (r: Reserva) => {
+    const tieneAdicionales = r.adicionales && r.adicionales.trim() !== "" && r.adicionales.trim() !== "[]";
+    return tieneAdicionales || telefonosClub.has(r.telefono.replace(/[^0-9]/g, ""));
+  };
+
+  const parseAdicionales = (adicionales: string | null) => {
+    if (!adicionales) return "";
+    try {
+      const parsed = JSON.parse(adicionales);
+      return Array.isArray(parsed) ? parsed.join(", ") : "";
+    } catch {
+      return adicionales;
+    }
   };
 
   const cerrarSesion = () => {
@@ -606,6 +1229,8 @@ export default function Admin() {
   const obtenerPropinaReserva = (r: Reserva) => parseMetodoPagoDetalle(r.metodo_pago).propinaMonto;
   const obtenerDolaresReserva = (r: Reserva) => parseMetodoPagoDetalle(r.metodo_pago).dolaresMonto;
 
+  const obtenerAdicionalesReserva = (r: Reserva) => r.adicionales_precio ?? 0;
+
   const obtenerIngresoSinpeReserva = (r: Reserva) => {
     const det = parseMetodoPagoDetalle(r.metodo_pago);
     if (det.tipo === "sinpe") return det.montoColones ?? parsearPrecio(r.precio);
@@ -648,9 +1273,53 @@ export default function Admin() {
   const reservasActivas = reservas.filter((r) => r.estado !== "cancelada" && r.estado !== "bloqueado");
   const reservasConfirmadas = reservasActivas.filter((r) => r.estado === "confirmada");
 
+  const fechaHoyISO = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  const mesActualISO = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
+
+  const esFechaSemanaISO = (f: string | null) => {
+    if (!f) return false;
+    const fecha = new Date(f + "T00:00:00");
+    const inicio = new Date(hoy);
+    inicio.setHours(0, 0, 0, 0);
+    inicio.setDate(inicio.getDate() - 6);
+    return fecha >= inicio && fecha <= hoy;
+  };
+
+  const esFechaMesISO = (f: string | null, mes: number, anio: number) => {
+    if (!f) return false;
+    return f.startsWith(`${anio}-${String(mes).padStart(2, "0")}`);
+  };
+
+  const sillaHoy = pagosSilla.filter((p) => p.fecha === fechaHoyISO).reduce((t, p) => t + p.monto, 0);
+  const sillaSemanaTotal = pagosSilla.filter((p) => esFechaSemanaISO(p.fecha)).reduce((t, p) => t + p.monto, 0);
+  const sillaMes = pagosSilla.filter((p) => esFechaMesISO(p.fecha, mesIngresos.mes, mesIngresos.anio)).reduce((t, p) => t + p.monto, 0);
+
+  const gastosHoy = gastos.filter((g) => g.fecha === fechaHoyISO).reduce((t, g) => t + g.monto, 0);
+  const gastosSemanaTotal = gastos.filter((g) => esFechaSemanaISO(g.fecha)).reduce((t, g) => t + g.monto, 0);
+  const gastosMes = gastos.filter((g) => esFechaMesISO(g.fecha, mesIngresos.mes, mesIngresos.anio)).reduce((t, g) => t + g.monto, 0);
+
+  const gastosHoyLista = gastos.filter((g) => g.fecha === fechaHoyISO);
+  const gastosSemanaLista = gastos.filter((g) => esFechaSemanaISO(g.fecha));
+  const gastosMesLista = gastos.filter((g) => esFechaMesISO(g.fecha, mesIngresos.mes, mesIngresos.anio));
+
+  const sillaMesActual = pagosSilla.filter((p) => p.fecha?.startsWith(mesActualISO)).reduce((t, p) => t + p.monto, 0);
+  const gastosMesActual = gastos.filter((g) => g.fecha?.startsWith(mesActualISO)).reduce((t, g) => t + g.monto, 0);
+
+  const fechaPagoISO = (f: string | null) => (f ? f.slice(0, 10) : null);
+  const clubPagosHoy = clubPagos.filter((p) => fechaPagoISO(p.fecha) === fechaHoyISO).reduce((t, p) => t + p.monto, 0);
+  const clubPagosSemana = clubPagos.filter((p) => esFechaSemanaISO(fechaPagoISO(p.fecha))).reduce((t, p) => t + p.monto, 0);
+  const clubPagosMes = clubPagos.filter((p) => esFechaMesISO(fechaPagoISO(p.fecha), mesIngresos.mes, mesIngresos.anio)).reduce((t, p) => t + p.monto, 0);
+
+  const clubPagosHoyLobo = clubPagos.filter((p) => p.barbero === "Alonso Lobo" && fechaPagoISO(p.fecha) === fechaHoyISO).reduce((t, p) => t + p.monto, 0);
+  const clubPagosHoyIan = clubPagos.filter((p) => p.barbero === "Ian Bustos Navarrete" && fechaPagoISO(p.fecha) === fechaHoyISO).reduce((t, p) => t + p.monto, 0);
+  const clubPagosSemanaLobo = clubPagos.filter((p) => p.barbero === "Alonso Lobo" && esFechaSemanaISO(fechaPagoISO(p.fecha))).reduce((t, p) => t + p.monto, 0);
+  const clubPagosSemanaIan = clubPagos.filter((p) => p.barbero === "Ian Bustos Navarrete" && esFechaSemanaISO(fechaPagoISO(p.fecha))).reduce((t, p) => t + p.monto, 0);
+  const clubPagosMesLobo = clubPagos.filter((p) => p.barbero === "Alonso Lobo" && esFechaMesISO(fechaPagoISO(p.fecha), mesIngresos.mes, mesIngresos.anio)).reduce((t, p) => t + p.monto, 0);
+  const clubPagosMesIan = clubPagos.filter((p) => p.barbero === "Ian Bustos Navarrete" && esFechaMesISO(fechaPagoISO(p.fecha), mesIngresos.mes, mesIngresos.anio)).reduce((t, p) => t + p.monto, 0);
+
   const ingresosHoy = reservasConfirmadas
     .filter((r) => r.fecha === fechaHoy)
-    .reduce((t, r) => t + obtenerIngresoColonesReserva(r), 0);
+    .reduce((t, r) => t + obtenerIngresoColonesReserva(r), 0) + sillaHoy + clubPagosHoy;
 
   const ingresosHoySinpe = reservasConfirmadas
     .filter((r) => r.fecha === fechaHoy)
@@ -668,6 +1337,10 @@ export default function Admin() {
     .filter((r) => r.fecha === fechaHoy)
     .reduce((t, r) => t + obtenerDolaresReserva(r), 0);
 
+  const adicionalesHoy = reservasConfirmadas
+    .filter((r) => r.fecha === fechaHoy)
+    .reduce((t, r) => t + obtenerAdicionalesReserva(r), 0);
+
   const ingresosSemanales = (() => {
     const diasSemana: {[key: string]: number} = {};
     const inicio = new Date();
@@ -683,7 +1356,7 @@ export default function Admin() {
     return diasSemana;
   })();
 
-  const ingresosSemanaTotal = Object.values(ingresosSemanales).reduce((a, b) => a + b, 0);
+  const ingresosSemanaTotal = Object.values(ingresosSemanales).reduce((a, b) => a + b, 0) + sillaSemanaTotal + clubPagosSemana;
 
   const fechasSemanaKeys = Object.keys(ingresosSemanales);
 
@@ -695,51 +1368,62 @@ export default function Admin() {
     .filter((r) => fechasSemanaKeys.includes(r.fecha))
     .reduce((t, r) => t + obtenerDolaresReserva(r), 0);
 
-  const ingresosMes = (() => {
-    const mesActual = hoy.getMonth() + 1;
-    const anioActual = hoy.getFullYear();
-    return reservasConfirmadas
-      .filter((r) => {
-        const partes = r.fecha.split("/");
-        return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
-      })
-      .reduce((t, r) => t + obtenerIngresoColonesReserva(r), 0);
-  })();
+  const adicionalesSemanaTotal = reservasConfirmadas
+    .filter((r) => fechasSemanaKeys.includes(r.fecha))
+    .reduce((t, r) => t + obtenerAdicionalesReserva(r), 0);
+
+  const esMesIngresos = (r: Reserva) => {
+    const partes = r.fecha.split("/");
+    return parseInt(partes[1]) === mesIngresos.mes && parseInt(partes[2]) === mesIngresos.anio;
+  };
+
+  const esMesActual = mesIngresos.mes === hoy.getMonth() + 1 && mesIngresos.anio === hoy.getFullYear();
+  const nombreMesIngresos = MESES[mesIngresos.mes - 1];
+  const tituloMesIngresos = esMesActual ? `Ingresos de ${nombreMesIngresos}` : `Ingresos de ${nombreMesIngresos} ${mesIngresos.anio}`;
+
+  const anteriorMes = () => {
+    if (mesIngresos.mes === 1) {
+      setMesIngresos({ mes: 12, anio: mesIngresos.anio - 1 });
+    } else {
+      setMesIngresos({ mes: mesIngresos.mes - 1, anio: mesIngresos.anio });
+    }
+  };
+
+  const siguienteMes = () => {
+    if (esMesActual) return;
+    if (mesIngresos.mes === 12) {
+      setMesIngresos({ mes: 1, anio: mesIngresos.anio + 1 });
+    } else {
+      setMesIngresos({ mes: mesIngresos.mes + 1, anio: mesIngresos.anio });
+    }
+  };
+
+  const ingresosMes = reservasConfirmadas
+    .filter(esMesIngresos)
+    .reduce((t, r) => t + obtenerIngresoColonesReserva(r), 0) + sillaMes + clubPagosMes;
+
+  const gananciaHoy = ingresosHoy - gastosHoy;
+  const gananciaSemana = ingresosSemanaTotal - gastosSemanaTotal;
+  const gananciaMes = ingresosMes - gastosMes;
 
   const propinasMes = reservasConfirmadas
-    .filter((r) => {
-      const partes = r.fecha.split("/");
-      const mesActual = hoy.getMonth() + 1;
-      const anioActual = hoy.getFullYear();
-      return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
-    })
+    .filter(esMesIngresos)
     .reduce((t, r) => t + obtenerPropinaReserva(r), 0);
 
   const dolaresMes = reservasConfirmadas
-    .filter((r) => {
-      const partes = r.fecha.split("/");
-      const mesActual = hoy.getMonth() + 1;
-      const anioActual = hoy.getFullYear();
-      return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
-    })
+    .filter(esMesIngresos)
     .reduce((t, r) => t + obtenerDolaresReserva(r), 0);
 
+  const adicionalesMes = reservasConfirmadas
+    .filter(esMesIngresos)
+    .reduce((t, r) => t + obtenerAdicionalesReserva(r), 0);
+
   const ingresosMesSinpe = reservasConfirmadas
-    .filter((r) => {
-      const partes = r.fecha.split("/");
-      const mesActual = hoy.getMonth() + 1;
-      const anioActual = hoy.getFullYear();
-      return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
-    })
+    .filter(esMesIngresos)
     .reduce((t, r) => t + obtenerIngresoSinpeReserva(r), 0);
 
   const ingresosMesEfectivo = reservasConfirmadas
-    .filter((r) => {
-      const partes = r.fecha.split("/");
-      const mesActual = hoy.getMonth() + 1;
-      const anioActual = hoy.getFullYear();
-      return parseInt(partes[1]) === mesActual && parseInt(partes[2]) === anioActual;
-    })
+    .filter(esMesIngresos)
     .reduce((t, r) => t + obtenerIngresoEfectivoReserva(r), 0);
 
   const reservasFiltradas = reservasActivas
@@ -856,6 +1540,12 @@ export default function Admin() {
               <p className="text-white font-bold">{modalReserva.nombre}</p>
               <p className="text-gray-500 text-sm">{modalReserva.servicio}</p>
               <p className="text-gold font-black text-xl mt-1">{modalReserva.precio}</p>
+              {modalReserva.adicionales && modalReserva.adicionales !== "[]" && (
+                <p className="text-gray-400 text-sm mt-1">
+                  Adicionales: {parseAdicionales(modalReserva.adicionales)}
+                  {modalReserva.adicionales_precio ? ` · ₡${modalReserva.adicionales_precio.toLocaleString("es-CR")}` : ""}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-3 mb-6">
@@ -1061,29 +1751,6 @@ export default function Admin() {
         </div>
       )}
 
-      {codigoVipGenerado && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{background: "rgba(0,0,0,0.8)"}}>
-          <div className="bg-dark-card border border-gold rounded-3xl p-6 w-full max-w-md text-center shadow-2xl shadow-black/60">
-            <p className="text-gold text-xs font-semibold uppercase tracking-[0.35em]">Codigo VIP</p>
-            <h3 className="text-white font-black text-2xl uppercase tracking-widest mt-3">Invitacion Generada</h3>
-            <div className="mt-6 rounded-2xl border border-gold bg-dark p-5">
-              <p className="text-gold text-3xl font-black tracking-widest">{codigoVipGenerado.codigo}</p>
-              <p className="text-gray-500 text-xs uppercase tracking-wider mt-3">
-                Expira: {new Date(codigoVipGenerado.expira_en).toLocaleString("es-CR")}
-              </p>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setCodigoVipGenerado(null)} className="flex-1 border border-dark-border text-gray-500 text-xs uppercase tracking-widest py-3 rounded-xl hover:border-gold transition-all">
-                Cerrar
-              </button>
-              <button onClick={copiarCodigoVip} className="flex-1 btn-gold text-xs uppercase tracking-widest py-3">
-                Copiar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Header */}
       <div className="bg-dark-card border-b border-dark-border px-6 py-4 flex items-center justify-between">
         <div>
@@ -1122,12 +1789,43 @@ export default function Admin() {
         </div>
 
         {/* Vistas */}
-        <div className="flex gap-2 mb-6 flex-wrap">
-          {VISTAS.map((v) => (
-            <button key={v.id} onClick={() => setVista(v.id)} className={`text-xs uppercase tracking-widest px-4 py-2 rounded-xl border transition-all duration-300 ${vista === v.id ? "bg-gold text-black border-gold font-bold" : "border-dark-border text-gray-500 hover:border-gold"}`}>
-              {v.label}
+        <div className="flex items-center gap-3 mb-6 flex-wrap">
+          {/* Tabs regulares */}
+          <div className="flex gap-2 flex-wrap">
+            {VISTAS.filter((v) => !VISTAS_LOBO.has(v.id) && v.id !== "club").map((v) => (
+              <button key={v.id} onClick={() => setVista(v.id)} className={`text-xs uppercase tracking-widest px-4 py-2 rounded-xl border transition-all duration-300 ${vista === v.id ? "bg-gold text-black border-gold font-bold" : "border-dark-border text-gray-500 hover:border-gold"}`}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Club (disponible para todos) + Silla/Gastos (solo Lobo) */}
+          <div className="ml-auto flex items-center gap-3">
+            <div className="hidden sm:block h-8 w-px bg-dark-border" aria-hidden="true" />
+            <button
+              onClick={() => setVista("club")}
+              className={`flex items-center gap-2 text-sm font-black uppercase tracking-widest px-6 py-3 rounded-2xl border-2 transition-all duration-300 shadow-[0_0_20px_rgba(224,184,76,0.4)] ${vista === "club" ? "bg-gold text-black border-gold" : "bg-transparent text-gold border-gold hover:bg-gold hover:text-black hover:shadow-[0_0_28px_rgba(224,184,76,0.55)]"}`}
+            >
+              <span className="text-base">💎</span>
+              <span>Visionary Club</span>
             </button>
-          ))}
+            {usuarioInfo?.rol === "admin" && !usuarioIan && (
+              <>
+                <button
+                  onClick={() => setVista("silla")}
+                  className={`text-xs uppercase tracking-widest px-4 py-2 rounded-xl border font-bold transition-all duration-300 ${vista === "silla" ? "bg-gold text-black border-gold" : "border-gold text-gold hover:bg-gold hover:text-black"}`}
+                >
+                  Silla
+                </button>
+                <button
+                  onClick={() => setVista("gastos")}
+                  className={`text-xs uppercase tracking-widest px-4 py-2 rounded-xl border font-bold transition-all duration-300 ${vista === "gastos" ? "bg-gold text-black border-gold" : "border-gold text-gold hover:bg-gold hover:text-black"}`}
+                >
+                  Gastos
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {cargando ? (
@@ -1146,32 +1844,57 @@ export default function Admin() {
             </div>
 
             {periodoIngresos === "dia" && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-dark-card border border-gold rounded-xl p-6 sm:col-span-2">
-                  <p className="text-gold text-xs uppercase tracking-wider mb-2">Ingresos de Hoy</p>
-                  <p className="text-white font-black text-4xl">₡{ingresosHoy.toLocaleString("es-CR")}</p>
-                  <p className="text-gray-500 text-sm mt-2">{reservasConfirmadas.filter((r) => r.fecha === fechaHoy).length} cortes realizados hoy</p>
-                  <p className="text-gray-600 text-xs mt-1">Incluye propinas y dólares convertidos · TC: ₡{tipoCambio.toFixed(0)}/USD</p>
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-dark-card border border-gold rounded-xl p-6 sm:col-span-2">
+                    <p className="text-gold text-xs uppercase tracking-wider mb-2">Ingresos de Hoy</p>
+                    <p className="text-white font-black text-4xl">₡{ingresosHoy.toLocaleString("es-CR")}</p>
+                    <p className="text-gray-500 text-sm mt-2">{reservasConfirmadas.filter((r) => r.fecha === fechaHoy).length} cortes realizados hoy</p>
+                    <p className="text-gray-600 text-xs mt-1">Incluye propinas y dólares convertidos · TC: ₡{tipoCambio.toFixed(0)}/USD</p>
+                  </div>
+                  <div className="flex flex-col gap-4">
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">SINPE</p>
+                      <p className="text-white font-black text-xl">₡{ingresosHoySinpe.toLocaleString("es-CR")}</p>
+                    </div>
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Efectivo</p>
+                      <p className="text-white font-black text-xl">₡{ingresosHoyEfectivo.toLocaleString("es-CR")}</p>
+                    </div>
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Propinas</p>
+                      <p className="text-white font-black text-xl">₡{propinasHoy.toLocaleString("es-CR")}</p>
+                    </div>
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Dólares</p>
+                      <p className="text-white font-black text-xl">${dolaresHoy.toFixed(2)}</p>
+                      {dolaresHoy > 0 && <p className="text-gray-600 text-xs mt-1">≈ ₡{Math.round(dolaresHoy * tipoCambio).toLocaleString("es-CR")}</p>}
+                    </div>
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Adicionales</p>
+                      <p className="text-white font-black text-xl">₡{adicionalesHoy.toLocaleString("es-CR")}</p>
+                    </div>
+                    {usuarioInfo?.rol === "admin" && !usuarioIan && (
+                      <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                        <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Silla</p>
+                        <p className="text-white font-black text-xl">₡{sillaHoy.toLocaleString("es-CR")}</p>
+                      </div>
+                    )}
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Membresías</p>
+                      <p className="text-white font-black text-xl">₡{clubPagosHoy.toLocaleString("es-CR")}</p>
+                      {!barberoClubActual && (
+                        <p className="text-gray-500 text-xs mt-1">Lobo ₡{clubPagosHoyLobo.toLocaleString("es-CR")} · Ian ₡{clubPagosHoyIan.toLocaleString("es-CR")}</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-4">
-                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">SINPE</p>
-                    <p className="text-white font-black text-xl">₡{ingresosHoySinpe.toLocaleString("es-CR")}</p>
-                  </div>
-                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Efectivo</p>
-                    <p className="text-white font-black text-xl">₡{ingresosHoyEfectivo.toLocaleString("es-CR")}</p>
-                  </div>
-                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Propinas</p>
-                    <p className="text-white font-black text-xl">₡{propinasHoy.toLocaleString("es-CR")}</p>
-                  </div>
-                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Dólares</p>
-                    <p className="text-white font-black text-xl">${dolaresHoy.toFixed(2)}</p>
-                    {dolaresHoy > 0 && <p className="text-gray-600 text-xs mt-1">≈ ₡{Math.round(dolaresHoy * tipoCambio).toLocaleString("es-CR")}</p>}
-                  </div>
-                </div>
+                {usuarioInfo?.rol === "admin" && !usuarioIan && (
+                  <GastosSeccion total={gastosHoy} lista={gastosHoyLista} />
+                )}
+                {usuarioInfo?.rol === "admin" && !usuarioIan && (
+                  <GananciaNetaCard total={gananciaHoy} ingresos={ingresosHoy} gastos={gastosHoy} />
+                )}
               </div>
             )}
 
@@ -1192,6 +1915,23 @@ export default function Admin() {
                     <p className="text-white font-black text-xl">${dolaresSemanaTotal.toFixed(2)}</p>
                     {dolaresSemanaTotal > 0 && <p className="text-gray-600 text-xs mt-1">≈ ₡{Math.round(dolaresSemanaTotal * tipoCambio).toLocaleString("es-CR")}</p>}
                   </div>
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Adicionales</p>
+                    <p className="text-white font-black text-xl">₡{adicionalesSemanaTotal.toLocaleString("es-CR")}</p>
+                  </div>
+                  {usuarioInfo?.rol === "admin" && !usuarioIan && (
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Silla</p>
+                      <p className="text-white font-black text-xl">₡{sillaSemanaTotal.toLocaleString("es-CR")}</p>
+                    </div>
+                  )}
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Membresías</p>
+                    <p className="text-white font-black text-xl">₡{clubPagosSemana.toLocaleString("es-CR")}</p>
+                    {!barberoClubActual && (
+                      <p className="text-gray-500 text-xs mt-1">Lobo ₡{clubPagosSemanaLobo.toLocaleString("es-CR")} · Ian ₡{clubPagosSemanaIan.toLocaleString("es-CR")}</p>
+                    )}
+                  </div>
                 </div>
                 <div className="bg-dark-card border border-dark-border rounded-xl overflow-hidden">
                   {Object.entries(ingresosSemanales).map(([fecha, monto]) => (
@@ -1203,15 +1943,30 @@ export default function Admin() {
                     </div>
                   ))}
                 </div>
+                {usuarioInfo?.rol === "admin" && !usuarioIan && (
+                  <GastosSeccion total={gastosSemanaTotal} lista={gastosSemanaLista} />
+                )}
+                {usuarioInfo?.rol === "admin" && !usuarioIan && (
+                  <GananciaNetaCard total={gananciaSemana} ingresos={ingresosSemanaTotal} gastos={gastosSemanaTotal} />
+                )}
               </div>
             )}
 
             {periodoIngresos === "mes" && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-dark-card border border-gold rounded-xl p-6 sm:col-span-2">
-                  <p className="text-gold text-xs uppercase tracking-wider mb-2">Ingresos del Mes</p>
-                  <p className="text-white font-black text-4xl">₡{ingresosMes.toLocaleString("es-CR")}</p>
-                  <p className="text-gray-500 text-sm mt-2">{reservasConfirmadas.filter((r) => { const p = r.fecha.split("/"); return parseInt(p[1]) === hoy.getMonth() + 1; }).length} cortes realizados este mes</p>
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-center gap-4">
+                  <button onClick={anteriorMes} className="text-gold hover:text-white transition-colors px-3 py-2 text-lg border border-dark-border rounded-lg">←</button>
+                  <p className="text-gold text-xs tracking-[3px] uppercase text-center min-w-[160px]">
+                    {nombreMesIngresos} {mesIngresos.anio}
+                  </p>
+                  <button onClick={siguienteMes} disabled={esMesActual} className="text-gold hover:text-white transition-colors px-3 py-2 text-lg border border-dark-border rounded-lg disabled:opacity-30 disabled:cursor-not-allowed">→</button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-dark-card border border-gold rounded-xl p-6 sm:col-span-2">
+                    <p className="text-gold text-xs uppercase tracking-wider mb-2">{tituloMesIngresos}</p>
+                    <p className="text-white font-black text-4xl">₡{ingresosMes.toLocaleString("es-CR")}</p>
+                    <p className="text-gray-500 text-sm mt-2">{reservasConfirmadas.filter(esMesIngresos).length} cortes realizados este mes</p>
                   <p className="text-gray-600 text-xs mt-1">Incluye propinas y dólares convertidos · TC: ₡{tipoCambio.toFixed(0)}/USD</p>
                 </div>
                 <div className="flex flex-col gap-4">
@@ -1232,7 +1987,31 @@ export default function Admin() {
                     <p className="text-white font-black text-xl">${dolaresMes.toFixed(2)}</p>
                     {dolaresMes > 0 && <p className="text-gray-600 text-xs mt-1">≈ ₡{Math.round(dolaresMes * tipoCambio).toLocaleString("es-CR")}</p>}
                   </div>
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Adicionales</p>
+                    <p className="text-white font-black text-xl">₡{adicionalesMes.toLocaleString("es-CR")}</p>
+                  </div>
+                  {usuarioInfo?.rol === "admin" && !usuarioIan && (
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Silla</p>
+                      <p className="text-white font-black text-xl">₡{sillaMes.toLocaleString("es-CR")}</p>
+                    </div>
+                  )}
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-4">
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Membresías</p>
+                    <p className="text-white font-black text-xl">₡{clubPagosMes.toLocaleString("es-CR")}</p>
+                    {!barberoClubActual && (
+                      <p className="text-gray-500 text-xs mt-1">Lobo ₡{clubPagosMesLobo.toLocaleString("es-CR")} · Ian ₡{clubPagosMesIan.toLocaleString("es-CR")}</p>
+                    )}
+                  </div>
                 </div>
+                </div>
+                {usuarioInfo?.rol === "admin" && !usuarioIan && (
+                  <GastosSeccion total={gastosMes} lista={gastosMesLista} />
+                )}
+                {usuarioInfo?.rol === "admin" && !usuarioIan && (
+                  <GananciaNetaCard total={gananciaMes} ingresos={ingresosMes} gastos={gastosMes} />
+                )}
               </div>
             )}
 
@@ -1260,7 +2039,7 @@ export default function Admin() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
                     <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Cliente</p>
-                    <p className="text-white font-bold">{reserva.nombre}</p>
+                    <p className="text-white font-bold">{esReservaClub(reserva) ? "💎 " : ""}{reserva.nombre}</p>
                     <p className="text-gray-500 text-sm">{reserva.telefono}</p>
                     <p className="text-gray-500 text-sm">{reserva.email}</p>
                   </div>
@@ -1268,6 +2047,9 @@ export default function Admin() {
                     <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Servicio</p>
                     <p className="text-white font-bold">{reserva.servicio}</p>
                     <p className="text-gold text-sm font-bold">{reserva.precio}</p>
+                    {reserva.adicionales && reserva.adicionales !== "[]" && (
+                      <p className="text-violet-300 text-xs mt-1">+ {parseAdicionales(reserva.adicionales)}</p>
+                    )}
                     {reserva.metodo_pago && (
                       <span className="text-xs text-gray-500 capitalize">
                         Pago: {formatPagoDetalle(reserva)}
@@ -1442,53 +2224,516 @@ export default function Admin() {
             ))}
           </div>
 
-        ) : vista === "vip" ? (
+        ) : vista === "club" ? (
 
-          <div className="flex flex-col gap-4">
-            <div className="bg-dark-card border border-gold rounded-xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <p className="text-gold text-xs uppercase tracking-widest mb-2">Clientes VIP</p>
-                <h2 className="text-white font-black text-2xl uppercase tracking-wider">Codigos de invitacion</h2>
-                <p className="text-gray-500 text-sm mt-2">Cada codigo expira en 24 horas y solo puede usarse una vez.</p>
+          /* Vista Club */
+          <div className="flex flex-col gap-6">
+            {cargandoClub ? (
+              <div className="text-center py-20 bg-dark-card border border-dark-border rounded-xl">
+                <p className="text-gray-500">Cargando Visionary Club...</p>
               </div>
-              <button onClick={generarCodigoVip} className="btn-gold text-xs uppercase tracking-widest px-5 py-3">
-                Generar codigo de invitacion
-              </button>
-            </div>
+            ) : (
+              <>
+                {/* Estadísticas */}
+                {statsClub && (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-dark-card border border-gold rounded-xl p-5">
+                      <p className="text-gold text-xs uppercase tracking-wider mb-2">Miembros activos</p>
+                      <p className="text-white font-black text-3xl">{statsClub.miembros_activos}</p>
+                    </div>
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Pagos del mes</p>
+                      <p className="text-white font-black text-3xl">₡{statsClub.pagos_mes_total.toLocaleString("es-CR")}</p>
+                      <p className="text-gray-600 text-xs mt-1">{statsClub.pagos_mes_cantidad} pagos</p>
+                    </div>
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Servicios del mes</p>
+                      <p className="text-white font-black text-3xl">{statsClub.servicios_mes}</p>
+                    </div>
+                    <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Vencen en 7 días</p>
+                      <p className="text-white font-black text-3xl">{statsClub.por_vencer.length}</p>
+                    </div>
+                  </div>
+                )}
 
-            {cargandoCodigosVip ? (
-              <div className="text-center py-20 bg-dark-card border border-dark-border rounded-xl">
-                <p className="text-gray-500">Cargando codigos...</p>
-              </div>
-            ) : codigosVip.length === 0 ? (
-              <div className="text-center py-20 bg-dark-card border border-dark-border rounded-xl">
-                <p className="text-gray-500">Aun no hay codigos VIP</p>
-              </div>
-            ) : codigosVip.map((codigo) => (
-              <div key={codigo.id} className="bg-dark-card border border-dark-border rounded-xl p-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-center">
-                  <div className="lg:col-span-2">
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Codigo</p>
-                    <p className="text-white font-black tracking-widest">{codigo.codigo}</p>
+                {statsClub && statsClub.por_vencer.length > 0 && (
+                  <div className="bg-dark-card border border-amber-700 rounded-xl p-5">
+                    <p className="text-amber-400 text-xs uppercase tracking-wider mb-3">Miembros por vencer (próximos 7 días)</p>
+                    <div className="flex flex-wrap gap-2">
+                      {statsClub.por_vencer.map((m) => (
+                        <span key={m.id} className="text-xs rounded-full border border-amber-700 text-amber-300 px-3 py-1">
+                          {m.nombre} · vence {m.fecha_vencimiento ? new Date(m.fecha_vencimiento).toLocaleDateString("es-CR") : "—"}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Estado</p>
-                    <span className={`inline-block text-xs uppercase tracking-widest px-3 py-1 rounded-full font-bold ${codigo.estado === "activo" ? "bg-gold text-black" : codigo.estado === "usado" ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300"}`}>
-                      {codigo.estado}
-                    </span>
+                )}
+
+                {/* Planes */}
+                <div className="bg-dark-card border border-dark-border rounded-xl p-6">
+                  <h3 className="text-gold text-xs uppercase tracking-widest mb-4">Planes</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {planes.map((plan) => (
+                      <div key={plan.id} className={`rounded-xl border p-4 ${plan.activo ? "border-gold" : "border-dark-border opacity-70"}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-white font-bold">{plan.nombre}</p>
+                          <div className="flex items-center gap-2">
+                            {usuarioInfo?.rol === "admin" && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setModalEditarPlan(plan);
+                                    setFormPlan({ precio: String(plan.precio), cortes: String(plan.servicios.cortes), barbas: String(plan.servicios.barbas) });
+                                  }}
+                                  className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-dark-border text-gray-400 hover:border-gold hover:text-gold"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  onClick={() => togglePlan(plan.id)}
+                                  className={`text-xs uppercase tracking-widest px-3 py-1 rounded-full border font-bold ${plan.activo ? "border-red-800 text-red-400 hover:bg-red-900" : "border-green-700 text-green-400 hover:bg-green-900"}`}
+                                >
+                                  {plan.activo ? "Desactivar" : "Activar"}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-gold font-black text-xl mt-2">₡{plan.precio.toLocaleString("es-CR")}<span className="text-gray-500 text-xs font-normal">/mes</span></p>
+                        <p className="text-gray-500 text-sm mt-2">✂️ {plan.servicios.cortes} cortes · 🪒 {plan.servicios.barbas} barbas</p>
+                        <p className="text-gray-600 text-xs mt-1">{plan.cupo_max ? `${plan.miembros_activos}/${plan.cupo_max} miembros` : `${plan.miembros_activos} miembros activos`}</p>
+                        <p className="text-gray-600 text-xs mt-1">🎁 {plan.promo_restantes} mascarillas de regalo restantes</p>
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Creado</p>
-                    <p className="text-gray-400 text-sm">{new Date(codigo.creado_en).toLocaleString("es-CR")}</p>
+                </div>
+
+                {/* Miembros */}
+                <div className="bg-dark-card border border-dark-border rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                    <h3 className="text-gold text-xs uppercase tracking-widest">Miembros</h3>
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={() => setModalNuevoMiembro(true)} className="btn-gold text-xs uppercase tracking-widest px-4 py-2">Nuevo miembro</button>
+                      <button onClick={() => setModalEscanearQr(true)} className="btn-outline text-xs uppercase tracking-widest px-4 py-2">Escanear QR</button>
+                      <button onClick={exportarMiembrosCsv} className="btn-outline text-xs uppercase tracking-widest px-4 py-2">Exportar CSV</button>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Expira / Usado por</p>
-                    <p className="text-gray-400 text-sm">{new Date(codigo.expira_en).toLocaleString("es-CR")}</p>
-                    {codigo.usado_por_nombre && <p className="text-gold text-sm font-bold mt-1">{codigo.usado_por_nombre}</p>}
+                  <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                    <input type="text" placeholder="Buscar por nombre o teléfono..." value={busquedaMiembro} onChange={(e) => setBusquedaMiembro(e.target.value)} className="bg-dark border border-dark-border rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-gold flex-1" />
+                    <select value={filtroEstadoClub} onChange={(e) => setFiltroEstadoClub(e.target.value)} className="bg-dark border border-dark-border rounded-xl px-3 py-2 text-gray-400 text-sm focus:outline-none focus:border-gold">
+                      <option value="todas">Todos</option>
+                      <option value="activo">Activos</option>
+                      <option value="pendiente">Pendientes</option>
+                      <option value="vencido">Vencidos</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {miembros
+                      .filter((m) => filtroEstadoClub === "todas" || m.estado === filtroEstadoClub)
+                      .filter((m) => busquedaMiembro === "" || m.nombre.toLowerCase().includes(busquedaMiembro.toLowerCase()) || m.telefono.includes(busquedaMiembro))
+                      .map((m) => (
+                        <div key={m.id} className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-dark-border p-4">
+                          <div className="flex-1">
+                            <p className="text-white font-bold flex items-center gap-2">
+                              {m.nombre}
+                              {!barberoClubActual && (
+                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-gold/20 text-[10px] font-black text-gold">
+                                  {m.barbero === "Alonso Lobo" ? "L" : "I"}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-gray-500 text-sm">{m.telefono} · {m.plan_nombre || "—"}</p>
+                            <p className="text-gray-600 text-xs mt-1">✂️ {m.balance.cortes} · 🪒 {m.balance.barbas} · 🧖 {m.balance.mascarilla}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <span className={`text-xs uppercase tracking-widest px-3 py-1 rounded-full font-bold ${m.estado === "activo" ? "bg-gold text-black" : m.estado === "vencido" ? "bg-red-900 text-red-300" : "bg-dark-surface text-gray-400"}`}>
+                              {m.estado}
+                            </span>
+                            <button onClick={() => abrirDetalleMiembro(m.id)} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-dark-border text-gray-400 hover:border-gold hover:text-gold">Detalle</button>
+                            <button onClick={() => { setFormPago({ metodo: "sinpe", monto: String(m.plan_precio ?? ""), referencia: "" }); setModalPagoMiembro(m); }} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-green-700 text-green-400 hover:bg-green-900">Registrar pago y activar</button>
+                            <button onClick={() => enlaceWhatsAppMiembro(m)} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-green-700 text-green-400 hover:bg-green-900">WhatsApp</button>
+                            {m.estado === "suspendido" ? (
+                              <button onClick={() => cambiarEstadoMiembro(m.id, "activo")} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-gold text-gold hover:bg-gold hover:text-black">Reactivar</button>
+                            ) : (
+                              <button onClick={() => cambiarEstadoMiembro(m.id, "suspendido")} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900">Suspender</button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    {miembros.length === 0 && <p className="text-gray-500 text-sm">No hay miembros registrados.</p>}
+                  </div>
+                </div>
+
+                {/* Friends 5 */}
+                <div className="bg-dark-card border border-dark-border rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                    <h3 className="text-gold text-xs uppercase tracking-widest">Visionary Friends 5</h3>
+                    <button onClick={() => setModalGrupo(true)} className="btn-gold text-xs uppercase tracking-widest px-4 py-2">Crear grupo</button>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {grupos.map((g) => (
+                      <div key={g.id} className="rounded-xl border border-dark-border p-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-white font-bold">{g.nombre_grupo}</p>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs uppercase tracking-widest px-3 py-1 rounded-full font-bold ${g.activo ? "bg-gold text-black" : "bg-red-900 text-red-300"}`}>
+                              {g.activo ? "Activo" : "Inactivo"}
+                            </span>
+                            <span className="text-gold font-black">₡{g.pago_total.toLocaleString("es-CR")}</span>
+                            <button
+                              onClick={() => toggleGrupo(g.id)}
+                              className={`text-xs uppercase tracking-widest px-3 py-1 rounded-full border font-bold ${g.activo ? "border-red-800 text-red-400 hover:bg-red-900" : "border-gold text-gold hover:bg-gold hover:text-black"}`}
+                            >
+                              {g.activo ? "Desactivar" : "Activar"}
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-gray-500 text-sm mt-1">
+                          {g.fecha_pago ? new Date(g.fecha_pago).toLocaleDateString("es-CR") : "—"} · {g.miembros.length} miembros
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {g.miembros.map((m) => (
+                            <span key={m.id} className="text-xs rounded-full bg-dark-surface px-3 py-1 text-gray-400">{m.nombre}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {grupos.length === 0 && <p className="text-gray-500 text-sm">No hay grupos registrados.</p>}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Modal detalle miembro */}
+            {modalDetalleMiembro && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.8)" }}>
+                <div className="bg-dark-card border border-gold rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-gold text-xs uppercase tracking-widest">Miembro</p>
+                      <h3 className="text-white font-black text-2xl mt-1">{modalDetalleMiembro.nombre}</h3>
+                      <p className="text-gray-500 text-sm">{modalDetalleMiembro.telefono} · {modalDetalleMiembro.plan_nombre || "—"}</p>
+                    </div>
+                    <button onClick={() => setModalDetalleMiembro(null)} className="border border-dark-border text-gray-500 text-xs px-3 py-2 rounded-xl">X</button>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    <div className="rounded-xl bg-dark p-3 text-center"><p className="text-lg">✂️</p><p className="text-2xl font-black text-gold">{modalDetalleMiembro.balance.cortes}</p><p className="text-xs text-gray-500">Cortes</p></div>
+                    <div className="rounded-xl bg-dark p-3 text-center"><p className="text-lg">🪒</p><p className="text-2xl font-black text-gold">{modalDetalleMiembro.balance.barbas}</p><p className="text-xs text-gray-500">Barbas</p></div>
+                    <div className="rounded-xl bg-dark p-3 text-center"><p className="text-lg">🧖</p><p className="text-2xl font-black text-gold">{modalDetalleMiembro.balance.mascarilla}</p><p className="text-xs text-gray-500">Mascarilla</p></div>
+                  </div>
+                  <p className="text-gray-500 text-sm mt-4">Vigencia: {modalDetalleMiembro.fecha_inicio ? new Date(modalDetalleMiembro.fecha_inicio).toLocaleDateString("es-CR") : "—"} → {modalDetalleMiembro.fecha_vencimiento ? new Date(modalDetalleMiembro.fecha_vencimiento).toLocaleDateString("es-CR") : "—"}</p>
+                  <p className="text-gray-600 text-xs mt-2">Estado: <span className="uppercase font-bold">{modalDetalleMiembro.estado}</span></p>
+                  <div className="mt-4">
+                    <button onClick={() => regenerarQr(modalDetalleMiembro.id)} className="text-xs uppercase tracking-widest px-3 py-2 rounded-full border border-gold text-gold hover:bg-gold hover:text-black">Regenerar QR</button>
+                  </div>
+
+                  <div className="mt-5">
+                    <p className="text-gold text-xs uppercase tracking-widest mb-2">Pagos</p>
+                    {(modalDetalleMiembro.pagos || []).length === 0 ? <p className="text-gray-600 text-sm">Sin pagos registrados.</p> : (modalDetalleMiembro.pagos || []).map((p) => (
+                      <div key={p.id} className="flex justify-between text-sm py-1 border-b border-dark-border">
+                        <span className="text-gray-400">{p.fecha ? new Date(p.fecha).toLocaleDateString("es-CR") : "—"} · {p.metodo}</span>
+                        <span className="text-gold font-bold">₡{p.monto.toLocaleString("es-CR")}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4">
+                    <p className="text-gold text-xs uppercase tracking-widest mb-2">Consumos</p>
+                    {(modalDetalleMiembro.consumos || []).length === 0 ? <p className="text-gray-600 text-sm">Sin consumos registrados.</p> : (modalDetalleMiembro.consumos || []).map((c) => (
+                      <div key={c.id} className="flex items-center justify-between text-sm py-1 border-b border-dark-border">
+                        <span className={`${c.anulado ? "text-gray-600 line-through" : "text-gray-400"}`}>{c.servicio} · {c.fecha ? new Date(c.fecha).toLocaleString("es-CR") : "—"}</span>
+                        <div className="flex items-center gap-2">
+                          {c.anulado ? (
+                            <span className="text-red-400 text-xs">{c.motivo_anulacion || "Anulado"}</span>
+                          ) : (
+                            <button onClick={() => anularConsumo(c.id)} className="text-xs uppercase tracking-widest px-2 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900 transition-all">
+                              Anular
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* Modal pago */}
+            {modalPagoMiembro && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.8)" }}>
+                <div className="bg-dark-card border border-gold rounded-2xl p-6 w-full max-w-md">
+                  <h3 className="text-white font-black text-xl">Registrar pago y activar</h3>
+                  <p className="text-gray-500 text-sm mt-1">{modalPagoMiembro.nombre} · {modalPagoMiembro.plan_nombre || "—"}</p>
+                  <div className="mt-5 flex flex-col gap-4">
+                    <div>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Método</label>
+                      <select value={formPago.metodo} onChange={(e) => setFormPago({ ...formPago, metodo: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold">
+                        <option value="sinpe">SINPE</option>
+                        <option value="efectivo">Efectivo</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Monto (₡)</label>
+                      <input type="text" inputMode="numeric" value={formPago.monto} onChange={(e) => setFormPago({ ...formPago, monto: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Referencia (opcional)</label>
+                      <input type="text" value={formPago.referencia} onChange={(e) => setFormPago({ ...formPago, referencia: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-6">
+                    <button onClick={() => setModalPagoMiembro(null)} className="flex-1 border border-dark-border text-gray-500 text-xs uppercase tracking-widest py-3 rounded-xl">Cancelar</button>
+                    <button onClick={registrarPagoMiembro} className="flex-1 btn-gold text-xs uppercase tracking-widest py-3">Confirmar pago</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal nuevo miembro */}
+            {modalNuevoMiembro && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.8)" }}>
+                <div className="bg-dark-card border border-gold rounded-2xl p-6 w-full max-w-md">
+                  <h3 className="text-white font-black text-xl">Nuevo miembro</h3>
+                  <div className="mt-5 flex flex-col gap-4">
+                    <div>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Nombre</label>
+                      <input type="text" value={formNuevoMiembro.nombre} onChange={(e) => setFormNuevoMiembro({ ...formNuevoMiembro, nombre: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Teléfono</label>
+                      <input type="tel" value={formNuevoMiembro.telefono} onChange={(e) => setFormNuevoMiembro({ ...formNuevoMiembro, telefono: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Email (opcional)</label>
+                      <input type="email" value={formNuevoMiembro.email} onChange={(e) => setFormNuevoMiembro({ ...formNuevoMiembro, email: e.target.value })} placeholder="Para recordatorios de vencimiento" className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Plan</label>
+                      <select value={formNuevoMiembro.plan_id} onChange={(e) => setFormNuevoMiembro({ ...formNuevoMiembro, plan_id: Number(e.target.value) })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold">
+                        <option value={0}>Selecciona un plan</option>
+                        {planes.filter((p) => p.activo).map((p) => (
+                          <option key={p.id} value={p.id}>{p.nombre} — ₡{p.precio.toLocaleString("es-CR")}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {barberoClubActual ? (
+                      <div>
+                        <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Barbero</label>
+                        <p className="text-gray-400 text-sm">{barberoClubActual}</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Barbero</label>
+                        <select value={formNuevoMiembro.barbero} onChange={(e) => setFormNuevoMiembro({ ...formNuevoMiembro, barbero: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold">
+                          <option value="">Selecciona un barbero</option>
+                          <option value="Alonso Lobo">Alonso Lobo</option>
+                          <option value="Ian Bustos Navarrete">Ian Bustos Navarrete</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-3 mt-6">
+                    <button onClick={() => setModalNuevoMiembro(false)} className="flex-1 border border-dark-border text-gray-500 text-xs uppercase tracking-widest py-3 rounded-xl">Cancelar</button>
+                    <button onClick={crearMiembro} className="flex-1 btn-gold text-xs uppercase tracking-widest py-3">Crear miembro</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal editar plan */}
+            {modalEditarPlan && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.8)" }}>
+                <div className="bg-dark-card border border-gold rounded-2xl p-6 w-full max-w-md">
+                  <h3 className="text-white font-black text-xl">Editar plan</h3>
+                  <p className="text-gray-500 text-sm mt-1">{modalEditarPlan.nombre}</p>
+                  <div className="mt-5 flex flex-col gap-4">
+                    <div>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Precio mensual (₡)</label>
+                      <input type="text" inputMode="numeric" value={formPlan.precio} onChange={(e) => setFormPlan({ ...formPlan, precio: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Cortes</label>
+                        <input type="text" inputMode="numeric" value={formPlan.cortes} onChange={(e) => setFormPlan({ ...formPlan, cortes: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                      </div>
+                      <div>
+                        <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Barbas</label>
+                        <input type="text" inputMode="numeric" value={formPlan.barbas} onChange={(e) => setFormPlan({ ...formPlan, barbas: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-6">
+                    <button onClick={() => setModalEditarPlan(null)} className="flex-1 border border-dark-border text-gray-500 text-xs uppercase tracking-widest py-3 rounded-xl">Cancelar</button>
+                    <button onClick={guardarPlan} className="flex-1 btn-gold text-xs uppercase tracking-widest py-3">Guardar</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal grupo */}
+            {modalGrupo && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.8)" }}>
+                <div className="bg-dark-card border border-gold rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                  <h3 className="text-white font-black text-xl">Crear grupo Friends 5</h3>
+                  <div className="mt-5 flex flex-col gap-4">
+                    <div>
+                      <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Nombre del grupo</label>
+                      <input type="text" value={formGrupo.nombre_grupo} onChange={(e) => setFormGrupo({ ...formGrupo, nombre_grupo: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                    </div>
+                    {formGrupo.miembros.map((m, i) => (
+                      <div key={i} className="grid grid-cols-2 gap-3">
+                        <input type="text" placeholder={`Nombre ${i + 1}`} value={m.nombre} onChange={(e) => { const copia = [...formGrupo.miembros]; copia[i] = { ...copia[i], nombre: e.target.value }; setFormGrupo({ ...formGrupo, miembros: copia }); }} className="bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                        <input type="tel" placeholder={`Teléfono ${i + 1}`} value={m.telefono} onChange={(e) => { const copia = [...formGrupo.miembros]; copia[i] = { ...copia[i], telefono: e.target.value }; setFormGrupo({ ...formGrupo, miembros: copia }); }} className="bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                      </div>
+                    ))}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Método</label>
+                        <select value={formGrupo.metodo} onChange={(e) => setFormGrupo({ ...formGrupo, metodo: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold">
+                          <option value="sinpe">SINPE</option>
+                          <option value="efectivo">Efectivo</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Monto total (₡)</label>
+                        <input type="text" inputMode="numeric" placeholder="35000" value={formGrupo.monto} onChange={(e) => setFormGrupo({ ...formGrupo, monto: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                      </div>
+                    </div>
+                    {barberoClubActual ? (
+                      <div>
+                        <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Barbero</label>
+                        <p className="text-gray-400 text-sm">{barberoClubActual}</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-gray-500 text-xs uppercase tracking-wider mb-2 block">Barbero</label>
+                        <select value={formGrupo.barbero} onChange={(e) => setFormGrupo({ ...formGrupo, barbero: e.target.value })} className="w-full bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold">
+                          <option value="">Selecciona un barbero</option>
+                          <option value="Alonso Lobo">Alonso Lobo</option>
+                          <option value="Ian Bustos Navarrete">Ian Bustos Navarrete</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-3 mt-6">
+                    <button onClick={() => setModalGrupo(false)} className="flex-1 border border-dark-border text-gray-500 text-xs uppercase tracking-widest py-3 rounded-xl">Cancelar</button>
+                    <button onClick={crearGrupo} className="flex-1 btn-gold text-xs uppercase tracking-widest py-3">Crear grupo</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal escanear QR */}
+            {modalEscanearQr && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.8)" }}>
+                <div className="relative bg-dark-card border border-gold rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+                  <button
+                    onClick={() => setModalEscanearQr(false)}
+                    aria-label="Cerrar"
+                    className="absolute top-3 right-3 flex h-10 w-10 items-center justify-center rounded-full border border-gold text-lg font-bold text-gold transition hover:bg-gold hover:text-black"
+                  >
+                    ✕
+                  </button>
+                  <h3 className="text-white font-black text-xl">Escanear QR de miembro</h3>
+                  <p className="text-gray-500 text-sm mt-1">Ingresa el código QR del miembro.</p>
+                  <div className="mt-4 flex gap-2">
+                    <input type="text" value={formQrToken} onChange={(e) => setFormQrToken(e.target.value)} placeholder="Token del QR" className="flex-1 bg-dark border border-dark-border rounded px-4 py-3 text-white text-sm focus:outline-none focus:border-gold" />
+                    <button onClick={escanearQr} disabled={cargandoQrMiembro} className="btn-gold text-xs uppercase tracking-widest px-4 py-2">Buscar</button>
+                  </div>
+
+                  {qrMiembro && (
+                    <div className="mt-5 rounded-xl border border-dark-border p-4">
+                      <p className="text-white font-bold">{qrMiembro.nombre}</p>
+                      <p className="text-gray-500 text-sm">{qrMiembro.telefono} · {qrMiembro.plan_nombre || "—"}</p>
+                      <p className={`text-xs uppercase tracking-widest mt-2 font-bold ${qrMiembro.estado === "activo" ? "text-gold" : "text-red-400"}`}>{qrMiembro.estado}</p>
+                      <div className="grid grid-cols-3 gap-2 mt-3">
+                        <div className="rounded-lg bg-dark p-2 text-center"><p className="text-xl">✂️</p><p className="text-lg font-black text-gold">{qrMiembro.balance.cortes}</p></div>
+                        <div className="rounded-lg bg-dark p-2 text-center"><p className="text-xl">🪒</p><p className="text-lg font-black text-gold">{qrMiembro.balance.barbas}</p></div>
+                        <div className="rounded-lg bg-dark p-2 text-center"><p className="text-xl">🧖</p><p className="text-lg font-black text-gold">{qrMiembro.balance.mascarilla}</p></div>
+                      </div>
+                      {qrMiembro.estado === "activo" && (
+                        <div className="flex gap-2 mt-4">
+                          <button onClick={() => consumirDesdeQr("corte")} disabled={qrMiembro.balance.cortes <= 0} className="flex-1 btn-gold text-xs uppercase tracking-widest py-2 disabled:opacity-40">Corte</button>
+                          <button onClick={() => consumirDesdeQr("barba")} disabled={qrMiembro.balance.barbas <= 0} className="flex-1 border border-gold text-gold text-xs uppercase tracking-widest py-2 disabled:opacity-40">Barba</button>
+                          <button onClick={() => consumirDesdeQr("mascarilla")} disabled={qrMiembro.balance.mascarilla <= 0} className="flex-1 border border-white/20 text-gray-300 text-xs uppercase tracking-widest py-2 disabled:opacity-40">Mascarilla</button>
+                        </div>
+                      )}
+                      {qrMiembro.estado !== "activo" && <p className="mt-3 text-red-400 text-sm font-bold">La membresía no está activa. No se pueden registrar servicios.</p>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+        ) : vista === "silla" ? (
+
+          /* Vista Silla */
+          <div className="flex flex-col gap-6">
+            <div className="bg-dark-card border border-dark-border rounded-xl p-6">
+              <h3 className="text-gold text-xs uppercase tracking-widest mb-4">Pago de Silla</h3>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input type="text" inputMode="numeric" placeholder="Monto (₡)" value={formSilla.monto} onChange={(e) => setFormSilla({ ...formSilla, monto: e.target.value })} className="bg-dark border border-dark-border rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-gold flex-1" />
+                <input type="text" placeholder="Nota (opcional)" value={formSilla.nota} onChange={(e) => setFormSilla({ ...formSilla, nota: e.target.value })} className="bg-dark border border-dark-border rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-gold flex-1" />
+                <button onClick={registrarPagoSilla} className="btn-gold text-xs uppercase tracking-widest px-5 py-2">Registrar pago</button>
+              </div>
+            </div>
+
+            <div className="bg-dark-card border border-gold rounded-xl p-5">
+              <p className="text-gold text-xs uppercase tracking-wider mb-1">Total silla este mes</p>
+              <p className="text-white font-black text-3xl">₡{sillaMesActual.toLocaleString("es-CR")}</p>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {pagosSilla.length === 0 ? (
+                <div className="text-center py-16 bg-dark-card border border-dark-border rounded-xl"><p className="text-gray-500">No hay pagos de silla registrados.</p></div>
+              ) : pagosSilla.map((p) => (
+                <div key={p.id} className="bg-dark-card border border-dark-border rounded-xl p-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-gold font-black text-xl">₡{p.monto.toLocaleString("es-CR")}</p>
+                    <p className="text-gray-500 text-sm">{p.fecha ? new Date(p.fecha + "T00:00:00").toLocaleDateString("es-CR") : "—"}{p.nota ? ` · ${p.nota}` : ""}</p>
+                  </div>
+                  <button onClick={() => eliminarPagoSilla(p.id)} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900">Eliminar</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        ) : vista === "gastos" ? (
+
+          /* Vista Gastos */
+          <div className="flex flex-col gap-6">
+            <div className="bg-dark-card border border-dark-border rounded-xl p-6">
+              <h3 className="text-gold text-xs uppercase tracking-widest mb-4">Gastos</h3>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input type="text" placeholder="Descripción" value={formGasto.descripcion} onChange={(e) => setFormGasto({ ...formGasto, descripcion: e.target.value })} className="bg-dark border border-dark-border rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-gold flex-1" />
+                <input type="text" inputMode="numeric" placeholder="Monto (₡)" value={formGasto.monto} onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })} className="bg-dark border border-dark-border rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-gold flex-1" />
+                <button onClick={registrarGasto} className="btn-gold text-xs uppercase tracking-widest px-5 py-2">Registrar gasto</button>
+              </div>
+            </div>
+
+            <div className="bg-dark-card border border-red-900 rounded-xl p-5">
+              <p className="text-red-400 text-xs uppercase tracking-wider mb-1">Total gastos este mes</p>
+              <p className="text-white font-black text-3xl">₡{gastosMesActual.toLocaleString("es-CR")}</p>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {gastos.length === 0 ? (
+                <div className="text-center py-16 bg-dark-card border border-dark-border rounded-xl"><p className="text-gray-500">No hay gastos registrados.</p></div>
+              ) : gastos.map((g) => (
+                <div key={g.id} className="bg-dark-card border border-dark-border rounded-xl p-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-white font-bold">{g.descripcion}</p>
+                    <p className="text-gray-500 text-sm">{g.fecha ? new Date(g.fecha + "T00:00:00").toLocaleDateString("es-CR") : "—"}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <p className="text-red-300 font-black text-xl">-₡{g.monto.toLocaleString("es-CR")}</p>
+                    <button onClick={() => eliminarGasto(g.id)} className="text-xs uppercase tracking-widest px-3 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900">Eliminar</button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
         ) : (
@@ -1577,13 +2822,16 @@ export default function Admin() {
             };
             return parsearHora(a.hora) - parsearHora(b.hora);
           })
-          .map((reserva) => (
-            <div key={reserva.id} className="px-6 py-4 flex items-center justify-between gap-4">
+          .map((reserva) => {
+            const esClub = esReservaClub(reserva);
+            return (
+            <div key={reserva.id} className={`px-6 py-4 flex items-center justify-between gap-4 ${esClub ? "border-l-4 border-violet-500 bg-violet-950/20" : ""}`}>
               <div className="flex items-center gap-4">
-                <p className="text-gold font-bold text-sm w-20 shrink-0">{reserva.hora}</p>
+                <p className={`font-bold text-sm w-20 shrink-0 ${esClub ? "text-violet-300" : "text-gold"}`}>{reserva.hora}</p>
                 <div>
-                  <p className="text-white font-bold text-sm">{reserva.nombre}</p>
+                  <p className="text-white font-bold text-sm">{esClub ? "💎 " : ""}{reserva.nombre}</p>
                   <p className="text-gray-500 text-xs">{reserva.servicio} · {reserva.precio} · {reserva.barbero}</p>
+                  {reserva.adicionales && reserva.adicionales !== "[]" && <p className="text-violet-300 text-xs">+ {parseAdicionales(reserva.adicionales)}</p>}
                   {reserva.metodo_pago && <p className="text-gray-600 text-xs capitalize">Pago: {formatPagoDetalle(reserva)}</p>}
                 </div>
               </div>
@@ -1606,7 +2854,8 @@ export default function Admin() {
   </div>
 </div>
             </div>
-          ))}
+            );
+          })}
         {reservasDelDia.length === 0 && (
           <div className="px-6 py-8 text-center">
             <p className="text-gray-500 text-sm">No hay citas para este día</p>

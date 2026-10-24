@@ -15,7 +15,10 @@ const servicios = [
   { id: 4, nombre: "Cejas", precio: "₡1,000", duracion: "5 min" },
 ];
 
-const pasos = ["Barbero", "Servicio", "Fecha y Hora", "Confirmar"];
+const adicionalesDisponibles = ["Mascarilla facial", "Pigmentación"];
+const HORARIOS_MIEMBRO = ["2:30 PM", "7:00 PM"];
+
+const pasos = ["Barbero", "Servicio", "Adicionales", "Fecha y Hora", "Confirmar"];
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function startOfDay(date: Date) {
@@ -48,9 +51,35 @@ export default function Reservar() {
   const [fechaSeleccionada, setFechaSeleccionada] = useState<Date | null>(null);
   const [horarioSeleccionado, setHorarioSeleccionado] = useState<string | null>(null);
   const [horariosOcupados, setHorariosOcupados] = useState<string[]>([]);
+  const [adicionalesSeleccionados, setAdicionalesSeleccionados] = useState<string[]>([]);
+  const [esMiembroClub, setEsMiembroClub] = useState(false);
+  const [clubTelefono, setClubTelefono] = useState("");
+  const [clubBarbero, setClubBarbero] = useState("");
 
   const barbero = getBarbero(barberoSeleccionado ?? 0);
-  const horarios = barberoSeleccionado ? getHorariosBarbero(barberoSeleccionado) : [];
+  const horariosBase = barberoSeleccionado ? getHorariosBarbero(barberoSeleccionado) : [];
+  const beneficiosMiembro = esMiembroClub && clubBarbero === barbero?.nombre;
+  const horarios = beneficiosMiembro && barbero?.nombre === "Alonso Lobo"
+    ? [...horariosBase, ...HORARIOS_MIEMBRO]
+    : horariosBase;
+  const precioAdicional = beneficiosMiembro ? "₡750 (precio miembro)" : "₡1,000";
+  const precioAdicionalNumerico = beneficiosMiembro ? 750 : 1000;
+  const adicionalesTotal = adicionalesSeleccionados.length * precioAdicionalNumerico;
+
+  useEffect(() => {
+    const telClub = localStorage.getItem("club_telefono");
+    if (!telClub) return;
+    fetch(`${API}/club/tarjeta/${encodeURIComponent(telClub)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.estado === "activo") {
+          setEsMiembroClub(true);
+          setClubTelefono(telClub);
+          setClubBarbero(data.barbero || "");
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!fechaSeleccionada || !barberoSeleccionado) return;
@@ -102,13 +131,25 @@ const router = useRouter();
   const fechaDeshabilitada = (date: Date) => date.getDay() === 0 || estaFueraDeRango(date);
 
   const servicio = servicios.find((s) => s.id === servicioSeleccionado);
+  const precioBase = servicio ? parseInt(servicio.precio.replace(/[^0-9]/g, "")) || 0 : 0;
+  const totalGeneral = precioBase + adicionalesTotal;
+
+  const toggleAdicional = (adicional: string) => {
+    setAdicionalesSeleccionados((actuales) =>
+      actuales.includes(adicional)
+        ? actuales.filter((item) => item !== adicional)
+        : [...actuales, adicional],
+    );
+  };
+
   const confirmarReserva = async () => {
     if (!nombre || !telefono || !email) {
       alert("Por favor completa todos los campos");
       return;
     }
+    const telefonoEnvio = beneficiosMiembro && clubTelefono ? clubTelefono : telefono;
     setStoredValue("cliente_nombre", nombre);
-setStoredValue("cliente_telefono", telefono);
+setStoredValue("cliente_telefono", telefonoEnvio);
 setStoredValue("cliente_email", email);
     setCargando(true);
     try {
@@ -117,20 +158,25 @@ setStoredValue("cliente_email", email);
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nombre,
-          telefono,
+          telefono: telefonoEnvio,
           email,
           barbero: barbero?.nombre || "",
           servicio: servicio?.nombre || "",
           precio: servicio?.precio || "",
           fecha: fechaSeleccionada ? fechaSeleccionada.toLocaleDateString("es-CR") : "",
           hora: horarioSeleccionado || "",
+          adicionales: adicionalesSeleccionados,
+          adicionales_precio: adicionalesTotal,
         }),
       });
       if (!response.ok) {
         const error = await response.json();
-        if (error.detail === "Ya existe una reserva para esa fecha y hora") {
+        if (error.detail === "Este horario es exclusivo para miembros activos de Visionary Club") {
+          alert("Este horario es exclusivo para miembros activos de Visionary Club.");
+          setPaso(3);
+        } else if (error.detail === "Ya existe una reserva para esa fecha y hora") {
           alert("Ese horario ya está ocupado. Por favor selecciona otro.");
-          setPaso(2);
+          setPaso(3);
         } else {
           alert("Error al crear la reserva, intenta de nuevo");
         }
@@ -161,9 +207,10 @@ setStoredValue("cliente_email", email);
               <p className="text-gray-500 text-xs uppercase tracking-wider">Resumen</p>
               <p className="text-white text-sm"><span className="text-gold">Barbero:</span> {barbero?.nombre}</p>
               <p className="text-white text-sm"><span className="text-gold">Servicio:</span> {servicio?.nombre}</p>
+              <p className="text-white text-sm"><span className="text-gold">Adicionales:</span> {adicionalesSeleccionados.length ? adicionalesSeleccionados.join(", ") : "Ninguno"}</p>
               <p className="text-white text-sm"><span className="text-gold">Fecha:</span> {fechaSeleccionada?.toLocaleDateString("es-CR")}</p>
               <p className="text-white text-sm"><span className="text-gold">Hora:</span> {horarioSeleccionado}</p>
-              <p className="text-white text-sm"><span className="text-gold">Total:</span> {servicio?.precio}</p>
+              <p className="text-white text-sm"><span className="text-gold">Total:</span> ₡{totalGeneral.toLocaleString("es-CR")}</p>
             </div>
             <button onClick={() => router.push("/")} className="btn-gold w-full uppercase tracking-widest text-sm py-3">
               Volver al inicio
@@ -257,8 +304,38 @@ setStoredValue("cliente_email", email);
                 </div>
               )}
 
-             {/* Paso 3 - Fecha y hora */}
-             {paso === 2 && (
+              {/* Paso 3 - Adicionales */}
+              {paso === 2 && (
+                <div>
+                  <h2 className="text-white font-bold text-xl mb-2">Adicionales</h2>
+                  <p className="text-gray-500 text-sm mb-6">
+                    Agrega un extra a tu cita.
+                    {beneficiosMiembro ? " Como miembro del club pagas ₡750 por adicional." : " Cada adicional tiene un costo de ₡1,000."}
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    {adicionalesDisponibles.map((adicional) => (
+                      <label
+                        key={adicional}
+                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-4 transition ${adicionalesSeleccionados.includes(adicional) ? "border-gold bg-dark" : "border-dark-border bg-dark hover:border-gold"}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={adicionalesSeleccionados.includes(adicional)}
+                            onChange={() => toggleAdicional(adicional)}
+                            className="accent-gold"
+                          />
+                          <span className="text-white font-bold">{adicional}</span>
+                        </div>
+                        <span className="text-gold font-black text-sm">{precioAdicional}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+             {/* Paso 4 - Fecha y hora */}
+             {paso === 3 && (
                 <div>
                   <h2 className="text-white font-bold text-xl mb-6">Elige fecha y hora</h2>
                   <div className="mb-6">
@@ -280,7 +357,9 @@ setStoredValue("cliente_email", email);
                   <div className="mt-6">
                     <label className="text-gray-500 text-xs uppercase tracking-wider mb-3 block">Horario disponible</label>
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                      {horarios.map((h) => (
+                      {horarios.map((h) => {
+                        const esExclusivoMiembro = HORARIOS_MIEMBRO.includes(h);
+                        return (
                        <button
                        key={h}
                        onClick={() => !horariosOcupados.includes(h) && !esHorarioPasado(h) && setHorarioSeleccionado(h)}
@@ -290,19 +369,26 @@ setStoredValue("cliente_email", email);
                            ? "border-dark-border text-gray-700 cursor-not-allowed line-through"
                            : horarioSeleccionado === h
                            ? "border-gold bg-gold text-black"
+                           : esExclusivoMiembro
+                           ? "border-gold text-gold hover:bg-gold hover:text-black"
                            : "border-dark-border text-gray-400 hover:border-gold hover:text-gold"
                        }`}
                      >
                        {h}
+                       {esExclusivoMiembro && <span className="ml-1">💎</span>}
                      </button>
-                      ))}
+                        );
+                      })}
                     </div>
+                    {beneficiosMiembro && barbero?.nombre === "Alonso Lobo" && (
+                      <p className="text-gold text-xs mt-3">💎 Horarios exclusivos para miembros del club</p>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* Paso 4 - Confirmar */}
-              {paso === 3 && (
+              {/* Paso 5 - Confirmar */}
+              {paso === 4 && (
                 <div>
                   <h2 className="text-white font-bold text-xl mb-6">Tus datos</h2>
                   <div className="flex flex-col gap-4">
@@ -329,11 +415,11 @@ setStoredValue("cliente_email", email);
                     Atrás
                   </button>
                 )}
-                {paso < 3 ? (
+                {paso < 4 ? (
                   <button onClick={() => {
                     if (paso === 1 && !servicioSeleccionado) { alert("Por favor selecciona un servicio"); return; }
-                    if (paso === 2 && !fechaSeleccionada) { alert("Por favor selecciona una fecha"); return; }
-                    if (paso === 2 && !horarioSeleccionado) { alert("Por favor selecciona un horario"); return; }
+                    if (paso === 3 && !fechaSeleccionada) { alert("Por favor selecciona una fecha"); return; }
+                    if (paso === 3 && !horarioSeleccionado) { alert("Por favor selecciona un horario"); return; }
                     setPaso(paso + 1);
                   }} className="btn-gold text-xs uppercase tracking-widest px-6 py-3 ml-auto">
                     Continuar
@@ -360,6 +446,10 @@ setStoredValue("cliente_email", email);
                   <p className="text-white font-bold text-sm">{servicio ? servicio.nombre : "---"}</p>
                 </div>
                 <div className="border-b border-dark-border pb-3">
+                  <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Adicionales</p>
+                  <p className="text-white font-bold text-sm">{adicionalesSeleccionados.length ? adicionalesSeleccionados.join(", ") : "Ninguno"}</p>
+                </div>
+                <div className="border-b border-dark-border pb-3">
                   <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Fecha</p>
                   <p className="text-white font-bold text-sm">{fechaSeleccionada ? fechaSeleccionada.toLocaleDateString("es-CR") : "---"}</p>
                 </div>
@@ -369,7 +459,7 @@ setStoredValue("cliente_email", email);
                 </div>
                 <div>
                   <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Total</p>
-                  <p className="text-gold font-black text-xl">{servicio ? servicio.precio : "₡0"}</p>
+                  <p className="text-gold font-black text-xl">₡{totalGeneral.toLocaleString("es-CR")}</p>
                 </div>
               </div>
             </div>

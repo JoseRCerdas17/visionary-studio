@@ -71,6 +71,16 @@ export default function Hero() {
               >
                 Reservar Cita
               </Link>
+              <Link
+                href="/club"
+                className="animate-pulse rounded text-center uppercase tracking-widest text-base px-9 py-4 font-black text-black transition-all duration-300 hover:brightness-110"
+                style={{
+                  background: "linear-gradient(45deg, #B8872E, #F0C95A)",
+                  boxShadow: "0 0 20px rgba(224, 184, 76, 0.6), 0 0 40px rgba(224, 184, 76, 0.3)",
+                }}
+              >
+                💎 Visionary Club
+              </Link>
               <button
                 onClick={() => {
                   const element = document.getElementById("servicios");

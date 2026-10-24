@@ -16,6 +16,8 @@ class Reserva(Base):
     hora = Column(String, nullable=False)
     estado = Column(String, default="pendiente")
     metodo_pago = Column(String, nullable=True)
+    adicionales = Column(String, nullable=True)
+    adicionales_precio = Column(Integer, nullable=True)
     creado_en = Column(DateTime, default=datetime.utcnow)
     recordatorio_dia_previo_enviado = Column(Boolean, default=False, nullable=False)
     recordatorio_1h_enviado = Column(Boolean, default=False, nullable=False)

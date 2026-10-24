@@ -6,15 +6,17 @@ from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from database.connection import Base, engine, ensure_reserva_reminder_columns, ensure_cancelada_en_column, ensure_resenas_table, ensure_stamp_card_barbero_column, SessionLocal
+from database.connection import Base, engine, ensure_reserva_reminder_columns, ensure_cancelada_en_column, ensure_reserva_adicionales_column, ensure_reserva_adicionales_precio_column, ensure_club_miembro_email_column, ensure_club_miembro_recordatorio_column, ensure_club_miembro_barbero_column, ensure_club_grupo_barbero_column, ensure_resenas_table, ensure_stamp_card_barbero_column, SessionLocal
 from models.reserva import Reserva
 from models.usuario import Usuario
 from models.resena import Resena
 from models.stamp_card import StampCard, StampToken
+from models.club import ClubPlan, ClubMiembro, ClubPago, ClubConsumo, ClubGrupo
+from models.finanzas import Gasto, PagoSilla
 from auth.security import hashear_password
 from recordatorios import iniciar_scheduler, shutdown_scheduler
 from recordatorios_logic import CR_TZ, MIN_SEGUNDOS_ANTES_UNA_HORA, MAX_SEGUNDOS_ANTES_UNA_HORA, parse_cita_cr, debe_enviar_dia_previo, debe_enviar_1h
-from routers import auth, reservas, resenas, stamps
+from routers import auth, reservas, resenas, stamps, club, finanzas
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,8 +29,62 @@ _ENV_REMINDER_OFF = frozenset({"1", "true", "yes", "on"})
 Base.metadata.create_all(bind=engine)
 ensure_reserva_reminder_columns()
 ensure_cancelada_en_column()
+ensure_reserva_adicionales_column()
+ensure_reserva_adicionales_precio_column()
+ensure_club_miembro_email_column()
+ensure_club_miembro_recordatorio_column()
+ensure_club_miembro_barbero_column()
+ensure_club_grupo_barbero_column()
 ensure_resenas_table()
 ensure_stamp_card_barbero_column()
+
+
+def seed_club_planes():
+    import json
+
+    planes = [
+        {"nombre": "Essential", "precio": 7500, "activo": True, "servicios": {"cortes": 2, "barbas": 0, "mascarilla": False}, "cupo_max": None},
+        {"nombre": "Grooming", "precio": 9500, "activo": True, "servicios": {"cortes": 2, "barbas": 1, "mascarilla": False}, "cupo_max": None},
+        {"nombre": "Premium", "precio": 17000, "activo": True, "servicios": {"cortes": 4, "barbas": 3, "mascarilla": False}, "cupo_max": None},
+        {"nombre": "Student", "precio": 10500, "activo": False, "servicios": {"cortes": 3, "barbas": 0, "mascarilla": False}, "cupo_max": None},
+        {"nombre": "Visionary Black", "precio": 14000, "activo": False, "servicios": {"cortes": 4, "barbas": 0, "mascarilla": False}, "cupo_max": 20},
+        {"nombre": "Visionary Friends 5", "precio": 35000, "activo": False, "servicios": {"cortes": 2, "barbas": 0, "mascarilla": False}, "cupo_max": None},
+    ]
+    db = SessionLocal()
+    try:
+        for p in planes:
+            existente = db.query(ClubPlan).filter(ClubPlan.nombre == p["nombre"]).first()
+            if existente:
+                continue
+            db.add(
+                ClubPlan(
+                    nombre=p["nombre"],
+                    precio=p["precio"],
+                    activo=p["activo"],
+                    servicios=json.dumps(p["servicios"]),
+                    cupo_max=p["cupo_max"],
+                )
+            )
+        # Migración única: ajusta planes existentes que aún conservan el valor anterior.
+        # Solo se aplica si las barbas siguen en el valor viejo, para no pisar ediciones posteriores.
+        parches = [
+            ("Premium", 2, 3),
+            ("Visionary Black", 1, 0),
+        ]
+        for nombre, barbas_antes, barbas_despues in parches:
+            plan = db.query(ClubPlan).filter(ClubPlan.nombre == nombre).first()
+            if not plan:
+                continue
+            try:
+                actual = json.loads(plan.servicios)
+            except (ValueError, TypeError):
+                continue
+            if actual.get("barbas") == barbas_antes:
+                actual["barbas"] = barbas_despues
+                plan.servicios = json.dumps(actual)
+        db.commit()
+    finally:
+        db.close()
 
 
 def _barberos_from_env():
@@ -80,6 +136,7 @@ def seed_usuarios():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_usuarios()
+    seed_club_planes()
     scheduler = iniciar_scheduler()
     app.state.reminder_scheduler = scheduler
     try:
@@ -106,6 +163,8 @@ app.include_router(reservas.router)
 app.include_router(auth.router)
 app.include_router(resenas.router)
 app.include_router(stamps.router)
+app.include_router(club.router)
+app.include_router(finanzas.router)
 
 
 @app.get("/")
