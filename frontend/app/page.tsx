@@ -3,6 +3,7 @@ import Hero from "./components/sections/Hero";
 import Servicios from "./components/sections/Servicios";
 import Galeria from "./components/sections/Galeria";
 import Equipo from "./components/sections/Equipo";
+import VisionaryClub from "./components/sections/VisionaryClub";
 import Contacto from "./components/sections/Contacto";
 import Footer from "./components/layout/Footer";
 
@@ -14,6 +15,7 @@ export default function Home() {
       <Servicios />
       <Galeria />
       <Equipo />
+      <VisionaryClub />
       <Contacto />
       <Footer />
     </main>

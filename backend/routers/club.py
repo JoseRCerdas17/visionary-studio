@@ -841,6 +841,26 @@ def listar_pagos_club(
 
 # ---------------------------------------------------------------- Público
 
+@router.get("/planes/publico")
+def planes_publicos(db: Session = Depends(get_db)):
+    """Planes activos disponibles para el público (sin datos administrativos)."""
+    planes = (
+        db.query(ClubPlan)
+        .filter(ClubPlan.activo == True)
+        .order_by(ClubPlan.id)
+        .all()
+    )
+    return [
+        {
+            "id": plan.id,
+            "nombre": plan.nombre,
+            "precio": plan.precio,
+            "servicios": _servicios_plan(plan),
+        }
+        for plan in planes
+    ]
+
+
 @router.get("/tarjeta/{telefono}")
 def tarjeta_miembro(telefono: str, db: Session = Depends(get_db)):
     miembro = db.query(ClubMiembro).filter(ClubMiembro.telefono == telefono.strip()).first()

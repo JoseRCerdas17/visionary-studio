@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import QRCode from "react-qr-code";
+import PlanesClub from "../components/club/PlanesClub";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -43,6 +44,11 @@ export default function ClubPage() {
   const [buscando, setBuscando] = useState(false);
   const [tarjeta, setTarjeta] = useState<Tarjeta | null>(null);
   const [error, setError] = useState("");
+  const [planesAbiertos, setPlanesAbiertos] = useState(true);
+
+  useEffect(() => {
+    setPlanesAbiertos(tarjeta?.estado !== "activo");
+  }, [tarjeta]);
 
   useEffect(() => {
     const guardado = localStorage.getItem("club_telefono");
@@ -196,12 +202,39 @@ export default function ClubPage() {
           </div>
         )}
 
-        <div className="mt-8 text-center">
-          <Link href="/" className="text-xs uppercase tracking-widest text-[#E0B84C]">
-            ← Volver al inicio
-          </Link>
-        </div>
       </section>
+
+      <section className="mx-auto mt-16 max-w-5xl">
+        <button
+          onClick={() => setPlanesAbiertos((v) => !v)}
+          aria-expanded={planesAbiertos}
+          className="flex w-full items-center justify-between rounded-2xl border border-[#E0B84C]/25 bg-[#1A1A1A] px-6 py-5 text-left transition hover:border-[#E0B84C]/50"
+        >
+          <div>
+            <p className="text-xs uppercase tracking-widest text-[#E0B84C]">Visionary Club</p>
+            <p className="mt-1 text-xl font-black uppercase tracking-widest">Planes disponibles</p>
+          </div>
+          <span
+            className={`text-2xl font-bold text-[#E0B84C] transition-transform duration-300 ${
+              planesAbiertos ? "rotate-45" : ""
+            }`}
+          >
+            +
+          </span>
+        </button>
+
+        {planesAbiertos && (
+          <div className="mt-6">
+            <PlanesClub showCta={false} showSteps />
+          </div>
+        )}
+      </section>
+
+      <div className="mt-16 text-center">
+        <Link href="/" className="text-xs uppercase tracking-widest text-[#E0B84C]">
+          ← Volver al inicio
+        </Link>
+      </div>
     </main>
   );
 }
