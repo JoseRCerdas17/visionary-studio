@@ -23,6 +23,7 @@ type Tarjeta = {
     mascarilla: number;
   };
   pagos?: { monto: number; metodo: string; fecha: string | null }[];
+  servicios_extra?: { id: number; servicio: string; monto: number; pagado: boolean; metodo: string | null; nota: string | null; creado_en: string | null }[];
 };
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -87,6 +88,10 @@ export default function ClubPage() {
     setTarjeta(null);
     setError("");
   };
+
+  const extraCortes = (tarjeta?.servicios_extra || []).filter((e) => e.servicio === "corte").length;
+  const extraBarbas = (tarjeta?.servicios_extra || []).filter((e) => e.servicio === "barba").length;
+  const extraMascarilla = (tarjeta?.servicios_extra || []).filter((e) => e.servicio === "mascarilla").length;
 
   return (
     <main className="min-h-screen bg-[#0A0A0A] px-5 py-8 text-white">
@@ -156,16 +161,19 @@ export default function ClubPage() {
                 <p className="text-2xl">✂️</p>
                 <p className="mt-1 text-3xl font-black text-[#E0B84C]">{tarjeta.balance.cortes}</p>
                 <p className="text-xs uppercase tracking-widest text-white/50">Cortes</p>
+                {extraCortes > 0 && <p className="mt-1 text-[10px] font-bold text-[#E0B84C]">+{extraCortes} extra</p>}
               </div>
               <div className="rounded-2xl border border-white/10 bg-[#1A1A1A] p-4 text-center">
                 <p className="text-2xl">🪒</p>
                 <p className="mt-1 text-3xl font-black text-[#E0B84C]">{tarjeta.balance.barbas}</p>
                 <p className="text-xs uppercase tracking-widest text-white/50">Barbas</p>
+                {extraBarbas > 0 && <p className="mt-1 text-[10px] font-bold text-[#E0B84C]">+{extraBarbas} extra</p>}
               </div>
               <div className="rounded-2xl border border-white/10 bg-[#1A1A1A] p-4 text-center">
                 <p className="text-2xl">🧖</p>
                 <p className="mt-1 text-3xl font-black text-[#E0B84C]">{tarjeta.balance.mascarilla}</p>
                 <p className="text-xs uppercase tracking-widest text-white/50">Mascarilla</p>
+                {extraMascarilla > 0 && <p className="mt-1 text-[10px] font-bold text-[#E0B84C]">+{extraMascarilla} extra</p>}
               </div>
             </div>
 

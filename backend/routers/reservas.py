@@ -7,7 +7,7 @@ from emails import enviar_confirmacion_cliente
 from sqlalchemy.orm import Session
 from database.connection import get_db
 from models.reserva import Reserva
-from models.club import ClubMiembro
+from models.club import ClubConsumo, ClubMiembro, ClubPlan, ClubServicioExtra
 from pydantic import BaseModel
 from routers.auth import get_admin_actual, get_usuario_actual, TokenData
 
@@ -46,6 +46,7 @@ class ReservaResponse(BaseModel):
     metodo_pago: str | None = None
     adicionales: str | None = None
     adicionales_precio: int | None = None
+    es_miembro_club: bool = False
     cancelada_en: datetime | None = None
 
     class Config:
@@ -56,6 +57,43 @@ class BloqueoHorarioCreate(BaseModel):
     fecha: str
     hora: str
     barbero: str
+
+
+def _servicio_a_tipo_membresia(servicio: str) -> str | None:
+    """Mapea el servicio de la reserva al tipo de balance de membresía que consume."""
+    if servicio in ("Corte de Cabello", "Corte y Barba"):
+        return "corte"
+    if servicio == "Marcado y/o Barba":
+        return "barba"
+    return None
+
+
+def _saldo_servicio_membresia(miembro: ClubMiembro, tipo: str, db: Session) -> int:
+    """Saldo disponible de un tipo de servicio (corte/barba) en el ciclo vigente."""
+    base = 0
+    plan = db.query(ClubPlan).filter(ClubPlan.id == miembro.plan_id).first()
+    if plan and plan.servicios:
+        try:
+            base = int(json.loads(plan.servicios).get(tipo, 0))
+        except (ValueError, TypeError):
+            base = 0
+
+    extras_q = db.query(ClubServicioExtra).filter(
+        ClubServicioExtra.miembro_id == miembro.id,
+        ClubServicioExtra.servicio == tipo,
+    )
+    consumos_q = db.query(ClubConsumo).filter(
+        ClubConsumo.miembro_id == miembro.id,
+        ClubConsumo.servicio == tipo,
+        ClubConsumo.anulado == False,
+    )
+    if miembro.fecha_inicio is not None:
+        extras_q = extras_q.filter(ClubServicioExtra.creado_en >= miembro.fecha_inicio)
+        consumos_q = consumos_q.filter(ClubConsumo.fecha >= miembro.fecha_inicio)
+
+    extra = extras_q.count()
+    consumido = consumos_q.count()
+    return base + extra - consumido
 
 @router.post("/", response_model=ReservaResponse)
 def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
@@ -92,9 +130,31 @@ def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
                 detail="Este horario es exclusivo para miembros activos de Visionary Club",
             )
     
+    # Determina si el cliente tiene una membresía activa de Visionary Club con este barbero
+    # y si aún tiene saldo disponible para el servicio solicitado.
+    hoy_cr = datetime.now(CR_TZ).replace(tzinfo=None)
+    miembro_club = (
+        db.query(ClubMiembro)
+        .filter(
+            ClubMiembro.telefono == reserva.telefono.strip(),
+            ClubMiembro.barbero == reserva.barbero,
+            ClubMiembro.estado == "activo",
+        )
+        .first()
+    )
+    tipo_membresia = _servicio_a_tipo_membresia(reserva.servicio)
+    es_miembro_club = (
+        miembro_club is not None
+        and tipo_membresia is not None
+        and miembro_club.fecha_vencimiento is not None
+        and miembro_club.fecha_vencimiento >= hoy_cr
+        and _saldo_servicio_membresia(miembro_club, tipo_membresia, db) > 0
+    )
+
     datos = reserva.model_dump()
     adicionales = datos.pop("adicionales", None) or []
     datos["adicionales"] = json.dumps(adicionales) if adicionales else None
+    datos["es_miembro_club"] = es_miembro_club
     nueva_reserva = Reserva(**datos)
     db.add(nueva_reserva)
     db.commit()

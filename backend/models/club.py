@@ -77,3 +77,17 @@ class ClubConsumo(Base):
     registrado_por = Column(String, nullable=True)
     anulado = Column(Boolean, default=False, nullable=False)
     motivo_anulacion = Column(String, nullable=True)
+
+
+class ClubServicioExtra(Base):
+    __tablename__ = "club_servicios_extra"
+
+    id = Column(Integer, primary_key=True, index=True)
+    miembro_id = Column(Integer, ForeignKey("club_miembros.id"), nullable=False, index=True)
+    servicio = Column(String, nullable=False)
+    monto = Column(Integer, default=0, nullable=False)
+    pagado = Column(Boolean, default=False, nullable=False)
+    metodo = Column(String, nullable=True)
+    nota = Column(String, nullable=True)
+    creado_en = Column(DateTime, default=_ahora_cr, nullable=False)
+    creado_por = Column(String, nullable=True)

@@ -6,12 +6,12 @@ from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from database.connection import Base, engine, ensure_reserva_reminder_columns, ensure_cancelada_en_column, ensure_reserva_adicionales_column, ensure_reserva_adicionales_precio_column, ensure_club_miembro_email_column, ensure_club_miembro_recordatorio_column, ensure_club_miembro_barbero_column, ensure_club_grupo_barbero_column, ensure_resenas_table, ensure_stamp_card_barbero_column, SessionLocal
+from database.connection import Base, engine, ensure_reserva_reminder_columns, ensure_cancelada_en_column, ensure_reserva_adicionales_column, ensure_reserva_adicionales_precio_column, ensure_reserva_es_miembro_club_column, ensure_club_miembro_email_column, ensure_club_miembro_recordatorio_column, ensure_club_miembro_barbero_column, ensure_club_grupo_barbero_column, ensure_resenas_table, ensure_club_servicios_extra_table, ensure_stamp_card_barbero_column, SessionLocal
 from models.reserva import Reserva
 from models.usuario import Usuario
 from models.resena import Resena
 from models.stamp_card import StampCard, StampToken
-from models.club import ClubPlan, ClubMiembro, ClubPago, ClubConsumo, ClubGrupo
+from models.club import ClubPlan, ClubMiembro, ClubPago, ClubConsumo, ClubGrupo, ClubServicioExtra
 from models.finanzas import Gasto, PagoSilla
 from auth.security import hashear_password
 from recordatorios import iniciar_scheduler, shutdown_scheduler
@@ -31,11 +31,13 @@ ensure_reserva_reminder_columns()
 ensure_cancelada_en_column()
 ensure_reserva_adicionales_column()
 ensure_reserva_adicionales_precio_column()
+ensure_reserva_es_miembro_club_column()
 ensure_club_miembro_email_column()
 ensure_club_miembro_recordatorio_column()
 ensure_club_miembro_barbero_column()
 ensure_club_grupo_barbero_column()
 ensure_resenas_table()
+ensure_club_servicios_extra_table()
 ensure_stamp_card_barbero_column()
 
 

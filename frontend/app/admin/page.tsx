@@ -43,6 +43,7 @@ interface Reserva {
   metodo_pago: string | null;
   adicionales: string | null;
   adicionales_precio: number | null;
+  es_miembro_club: boolean;
   cancelada_en: string | null;
 }
 
@@ -84,6 +85,7 @@ interface ClubMiembro {
   mascarilla_promo?: boolean;
   pagos?: { id: number; monto: number; metodo: string; referencia: string | null; fecha: string | null }[];
   consumos?: { id: number; servicio: string; fecha: string | null; anulado: boolean; motivo_anulacion: string | null }[];
+  servicios_extra?: { id: number; servicio: string; monto: number; pagado: boolean; metodo: string | null; nota: string | null; creado_en: string | null }[];
 }
 
 interface ClubGrupo {
@@ -205,7 +207,7 @@ export default function Admin() {
   const [busqueda, setBusqueda] = useState("");
   const [vista, setVista] = useState<"lista" | "calendario" | "ingresos" | "canceladas" | "reseñas" | "club" | "silla" | "gastos">("lista");
   const [modalReserva, setModalReserva] = useState<Reserva | null>(null);
-  const [metodoPago, setMetodoPago] = useState<"sinpe" | "efectivo" | "mixto" | null>(null);
+  const [metodoPago, setMetodoPago] = useState<"sinpe" | "efectivo" | "mixto" | "membresia" | null>(null);
   const [montoPagoMetodo, setMontoPagoMetodo] = useState<string>("");
   const [tienePropina, setTienePropina] = useState<boolean>(false);
   const [montoPropina, setMontoPropina] = useState<string>("");
@@ -246,6 +248,8 @@ export default function Admin() {
   const [modalNuevoMiembro, setModalNuevoMiembro] = useState(false);
   const [telefonosClub, setTelefonosClub] = useState<Set<string>>(new Set());
   const [formNuevoMiembro, setFormNuevoMiembro] = useState({ nombre: "", telefono: "", email: "", plan_id: 0, barbero: "" });
+  const [formServicioExtra, setFormServicioExtra] = useState({ servicio: "corte", monto: "", pagado: false, metodo: "sinpe", nota: "" });
+  const [mostrarFormExtra, setMostrarFormExtra] = useState(false);
   const [formPago, setFormPago] = useState({ metodo: "sinpe", monto: "", referencia: "" });
   const [formGrupo, setFormGrupo] = useState({ nombre_grupo: "", metodo: "sinpe", monto: "", barbero: "", miembros: Array.from({ length: 5 }, () => ({ nombre: "", telefono: "" })) });
   const [formQrToken, setFormQrToken] = useState("");
@@ -454,7 +458,7 @@ export default function Admin() {
 
   useEffect(() => {
     if (!modalReserva) return;
-    setMetodoPago(null);
+    setMetodoPago(modalReserva.es_miembro_club ? "membresia" : null);
     setMontoPagoMetodo("");
     setMontoMixtoEfectivo("");
     setTienePropina(false);
@@ -505,6 +509,32 @@ export default function Admin() {
 
   const confirmarPago = async () => {
     if (!modalReserva || !metodoPago) return;
+
+    // Membresía Club: el corte está cubierto, no hay cobro en caja.
+    if (metodoPago === "membresia" || modalReserva.es_miembro_club) {
+      const token = localStorage.getItem("admin_token");
+      await fetch(`${API}/reservas/${modalReserva.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ estado: "confirmada", metodo_pago: "membresia" }),
+      });
+      setReservas((prev) =>
+        prev.map((r) =>
+          r.id === modalReserva.id
+            ? { ...r, estado: "confirmada", metodo_pago: "membresia" }
+            : r,
+        ),
+      );
+      setModalReserva(null);
+      setMetodoPago(null);
+      setMontoPagoMetodo("");
+      setMontoMixtoEfectivo("");
+      setTienePropina(false);
+      setMontoPropina("");
+      setTieneDolares(false);
+      setMontoDolares("");
+      return;
+    }
 
     let detallePago: Record<string, unknown>;
 
@@ -724,9 +754,64 @@ export default function Admin() {
     try {
       const res = await fetch(`${API}/club/miembros/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
-      if (res.ok) setModalDetalleMiembro(data);
+      if (res.ok) {
+        setModalDetalleMiembro(data);
+        setMostrarFormExtra(false);
+        setFormServicioExtra({ servicio: "corte", monto: "", pagado: false, metodo: "sinpe", nota: "" });
+      }
     } catch {
       // ignore
+    }
+  };
+
+  const agregarServicioExtra = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token || !modalDetalleMiembro) return;
+    const monto = parseInt((formServicioExtra.monto || "").replace(/[^0-9]/g, "")) || 0;
+    try {
+      const res = await fetch(`${API}/club/miembros/${modalDetalleMiembro.id}/servicios-extra`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          servicio: formServicioExtra.servicio,
+          monto,
+          pagado: formServicioExtra.pagado,
+          metodo: formServicioExtra.pagado ? formServicioExtra.metodo : null,
+          nota: formServicioExtra.nota.trim() || null,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.detail || "No se pudo agregar el servicio extra");
+        return;
+      }
+      setModalDetalleMiembro(data);
+      setMostrarFormExtra(false);
+      setFormServicioExtra({ servicio: "corte", monto: "", pagado: false, metodo: "sinpe", nota: "" });
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
+    }
+  };
+
+  const eliminarServicioExtra = async (extraId: number) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token || !modalDetalleMiembro) return;
+    if (!confirm("¿Eliminar este servicio extra? Se descontará del balance del miembro.")) return;
+    try {
+      const res = await fetch(`${API}/club/miembros/${modalDetalleMiembro.id}/servicios-extra/${extraId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.detail || "No se pudo eliminar el servicio extra");
+        return;
+      }
+      setModalDetalleMiembro(data);
+      cargarClub(barberoClubActual).catch(() => undefined);
+    } catch {
+      alert("Error de conexión");
     }
   };
 
@@ -1214,7 +1299,10 @@ export default function Admin() {
     return { tipo: null, montoColones: null, propinaMonto: 0, dolaresMonto: 0 };
   };
 
+  const esReservaMembresia = (r: Reserva) => r.metodo_pago === "membresia";
+
   const obtenerPrecioBaseReserva = (r: Reserva) => {
+    if (esReservaMembresia(r)) return 0;
     const det = parseMetodoPagoDetalle(r.metodo_pago);
     if (det.tipo === "mixto") return (det.montoSinpe ?? 0) + (det.montoEfectivo ?? 0);
     return det.montoColones !== null ? det.montoColones : parsearPrecio(r.precio);
@@ -1246,6 +1334,7 @@ export default function Admin() {
   };
 
   const formatPagoDetalle = (r: Reserva) => {
+    if (esReservaMembresia(r)) return "Membresía Club";
     const det = parseMetodoPagoDetalle(r.metodo_pago);
     const partes: string[] = [];
 
@@ -1533,13 +1622,23 @@ export default function Admin() {
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{background: "rgba(0,0,0,0.8)"}}>
           <div className="bg-dark-card border border-gold rounded-xl p-8 w-full max-w-md">
             <h3 className="text-white font-black text-xl mb-2">Corte Realizado</h3>
-            <p className="text-gray-500 text-sm mb-6">¿Cómo pagó el cliente?</p>
+            {modalReserva.es_miembro_club ? (
+              <div className="mb-6 rounded-xl border border-gold/40 bg-gold/10 p-4 text-center">
+                <p className="text-gold text-sm font-bold">💎 Este corte está cubierto por membresía Club</p>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm mb-6">¿Cómo pagó el cliente?</p>
+            )}
 
             <div className="bg-dark rounded-xl p-4 mb-6">
               <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Resumen</p>
               <p className="text-white font-bold">{modalReserva.nombre}</p>
               <p className="text-gray-500 text-sm">{modalReserva.servicio}</p>
-              <p className="text-gold font-black text-xl mt-1">{modalReserva.precio}</p>
+              {modalReserva.es_miembro_club ? (
+                <p className="text-gold font-black text-xl mt-1">💎 Membresía Club</p>
+              ) : (
+                <p className="text-gold font-black text-xl mt-1">{modalReserva.precio}</p>
+              )}
               {modalReserva.adicionales && modalReserva.adicionales !== "[]" && (
                 <p className="text-gray-400 text-sm mt-1">
                   Adicionales: {parseAdicionales(modalReserva.adicionales)}
@@ -1548,6 +1647,8 @@ export default function Admin() {
               )}
             </div>
 
+            {!modalReserva.es_miembro_club && (
+              <>
             <div className="grid grid-cols-3 gap-3 mb-6">
   <button onClick={() => setMetodoPago("sinpe")} className={`p-3 rounded-xl border text-center transition-all duration-300 ${metodoPago === "sinpe" ? "border-gold bg-gold text-black" : "border-dark-border text-white hover:border-gold"}`}>
     <p className="font-black text-lg">📱</p>
@@ -1678,6 +1779,8 @@ export default function Admin() {
               </>
               )}
             </div>
+              </>
+            )}
 
             <div className="flex gap-3">
               <button
@@ -1696,7 +1799,7 @@ export default function Admin() {
                 Cancelar
               </button>
               <button onClick={confirmarPago} disabled={!metodoPago} className="flex-1 btn-gold text-xs uppercase tracking-widest py-3 disabled:opacity-50">
-                Confirmar Pago
+                {modalReserva.es_miembro_club ? "Confirmar Membresía" : "Confirmar Pago"}
               </button>
             </div>
           </div>
@@ -2046,7 +2149,14 @@ export default function Admin() {
                   <div>
                     <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Servicio</p>
                     <p className="text-white font-bold">{reserva.servicio}</p>
-                    <p className="text-gold text-sm font-bold">{reserva.precio}</p>
+                    {reserva.es_miembro_club ? (
+                      <>
+                        <span className="mt-1 inline-block text-xs font-black uppercase tracking-widest px-2 py-1 rounded-full bg-gold text-black">💎 Membresía</span>
+                        <p className="text-gold text-xs mt-1">Pagado por membresía Club</p>
+                      </>
+                    ) : (
+                      <p className="text-gold text-sm font-bold">{reserva.precio}</p>
+                    )}
                     {reserva.adicionales && reserva.adicionales !== "[]" && (
                       <p className="text-violet-300 text-xs mt-1">+ {parseAdicionales(reserva.adicionales)}</p>
                     )}
@@ -2422,6 +2532,69 @@ export default function Admin() {
                     <div className="rounded-xl bg-dark p-3 text-center"><p className="text-lg">🪒</p><p className="text-2xl font-black text-gold">{modalDetalleMiembro.balance.barbas}</p><p className="text-xs text-gray-500">Barbas</p></div>
                     <div className="rounded-xl bg-dark p-3 text-center"><p className="text-lg">🧖</p><p className="text-2xl font-black text-gold">{modalDetalleMiembro.balance.mascarilla}</p><p className="text-xs text-gray-500">Mascarilla</p></div>
                   </div>
+
+                  <div className="mt-5">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-gold text-xs uppercase tracking-widest">Servicios extra</p>
+                      <button onClick={() => setMostrarFormExtra((v) => !v)} className="text-xs uppercase tracking-widest px-3 py-2 rounded-full border border-gold text-gold hover:bg-gold hover:text-black">
+                        {mostrarFormExtra ? "Cancelar" : "Agregar servicio extra"}
+                      </button>
+                    </div>
+
+                    {(modalDetalleMiembro.servicios_extra || []).length === 0 && !mostrarFormExtra ? (
+                      <p className="text-gray-600 text-sm">Sin servicios extra.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {(modalDetalleMiembro.servicios_extra || []).map((e) => (
+                          <div key={e.id} className="flex items-center justify-between rounded-lg border border-dark-border bg-dark px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="text-gray-300 text-sm capitalize">{e.servicio}</span>
+                              <span className="text-gray-500 text-xs">₡{e.monto.toLocaleString("es-CR")}</span>
+                              <span className={`text-xs font-bold uppercase ${e.pagado ? "text-green-400" : "text-gray-500"}`}>{e.pagado ? `Pagado${e.metodo ? ` · ${e.metodo}` : ""}` : "Regalo"}</span>
+                              {e.nota && <span className="text-gray-600 text-xs">· {e.nota}</span>}
+                            </div>
+                            <button onClick={() => eliminarServicioExtra(e.id)} className="text-xs uppercase tracking-widest px-2 py-1 rounded-full border border-red-800 text-red-400 hover:bg-red-900 shrink-0 ml-2">Eliminar</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {mostrarFormExtra && (
+                      <div className="mt-3 rounded-xl border border-dark-border bg-dark p-4 flex flex-col gap-3">
+                        <div>
+                          <label className="text-gray-500 text-xs uppercase tracking-wider mb-1 block">Servicio</label>
+                          <select value={formServicioExtra.servicio} onChange={(e) => setFormServicioExtra({ ...formServicioExtra, servicio: e.target.value })} className="w-full bg-dark-card border border-dark-border rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-gold">
+                            <option value="corte">Corte</option>
+                            <option value="barba">Barba</option>
+                            <option value="mascarilla">Mascarilla</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-gray-500 text-xs uppercase tracking-wider mb-1 block">Monto (₡, 0 si es regalo)</label>
+                          <input type="text" inputMode="numeric" value={formServicioExtra.monto} onChange={(e) => setFormServicioExtra({ ...formServicioExtra, monto: e.target.value })} placeholder="Ej: 4000" className="w-full bg-dark-card border border-dark-border rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-gold" />
+                        </div>
+                        <label className="flex items-center gap-2 text-gray-400 text-sm cursor-pointer">
+                          <input type="checkbox" checked={formServicioExtra.pagado} onChange={(e) => setFormServicioExtra({ ...formServicioExtra, pagado: e.target.checked })} className="accent-gold" />
+                          ¿Pagado?
+                        </label>
+                        {formServicioExtra.pagado && (
+                          <div>
+                            <label className="text-gray-500 text-xs uppercase tracking-wider mb-1 block">Método</label>
+                            <select value={formServicioExtra.metodo} onChange={(e) => setFormServicioExtra({ ...formServicioExtra, metodo: e.target.value })} className="w-full bg-dark-card border border-dark-border rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-gold">
+                              <option value="sinpe">SINPE</option>
+                              <option value="efectivo">Efectivo</option>
+                            </select>
+                          </div>
+                        )}
+                        <div>
+                          <label className="text-gray-500 text-xs uppercase tracking-wider mb-1 block">Nota (opcional)</label>
+                          <input type="text" value={formServicioExtra.nota} onChange={(e) => setFormServicioExtra({ ...formServicioExtra, nota: e.target.value })} className="w-full bg-dark-card border border-dark-border rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-gold" />
+                        </div>
+                        <button onClick={agregarServicioExtra} className="btn-gold text-xs uppercase tracking-widest py-2">Agregar</button>
+                      </div>
+                    )}
+                  </div>
+
                   <p className="text-gray-500 text-sm mt-4">Vigencia: {modalDetalleMiembro.fecha_inicio ? new Date(modalDetalleMiembro.fecha_inicio).toLocaleDateString("es-CR") : "—"} → {modalDetalleMiembro.fecha_vencimiento ? new Date(modalDetalleMiembro.fecha_vencimiento).toLocaleDateString("es-CR") : "—"}</p>
                   <p className="text-gray-600 text-xs mt-2">Estado: <span className="uppercase font-bold">{modalDetalleMiembro.estado}</span></p>
                   <div className="mt-4">
@@ -2830,7 +3003,7 @@ export default function Admin() {
                 <p className={`font-bold text-sm w-20 shrink-0 ${esClub ? "text-violet-300" : "text-gold"}`}>{reserva.hora}</p>
                 <div>
                   <p className="text-white font-bold text-sm">{esClub ? "💎 " : ""}{reserva.nombre}</p>
-                  <p className="text-gray-500 text-xs">{reserva.servicio} · {reserva.precio} · {reserva.barbero}</p>
+                  <p className="text-gray-500 text-xs">{reserva.servicio} · {reserva.es_miembro_club ? "💎 Membresía" : reserva.precio} · {reserva.barbero}</p>
                   {reserva.adicionales && reserva.adicionales !== "[]" && <p className="text-violet-300 text-xs">+ {parseAdicionales(reserva.adicionales)}</p>}
                   {reserva.metodo_pago && <p className="text-gray-600 text-xs capitalize">Pago: {formatPagoDetalle(reserva)}</p>}
                 </div>

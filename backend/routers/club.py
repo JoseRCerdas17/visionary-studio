@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
-from models.club import ClubConsumo, ClubGrupo, ClubMiembro, ClubPago, ClubPlan
+from models.club import ClubConsumo, ClubGrupo, ClubMiembro, ClubPago, ClubPlan, ClubServicioExtra
 from routers.auth import TokenData, get_usuario_actual
 
 CR_TZ = timezone(timedelta(hours=-6))
@@ -54,6 +54,14 @@ class ConsumoCreate(BaseModel):
 class AnularConsumo(BaseModel):
     motivo: str | None = None
     consumo_id: int | None = None
+
+
+class ServicioExtraCreate(BaseModel):
+    servicio: str
+    monto: int = 0
+    pagado: bool = False
+    metodo: str | None = None
+    nota: str | None = None
 
 
 class PlanUpdate(BaseModel):
@@ -108,6 +116,26 @@ def _servicios_plan(plan: ClubPlan) -> dict:
         return {"cortes": 0, "barbas": 0, "mascarilla": False}
 
 
+def _servicios_extra_vigentes(miembro: ClubMiembro, db: Session):
+    """Servicios extra del ciclo vigente (desde fecha_inicio, si existe)."""
+    query = db.query(ClubServicioExtra).filter(ClubServicioExtra.miembro_id == miembro.id)
+    if miembro.fecha_inicio is not None:
+        query = query.filter(ClubServicioExtra.creado_en >= miembro.fecha_inicio)
+    return query.order_by(ClubServicioExtra.creado_en.desc()).all()
+
+
+def _servicio_extra_serialize(extra: ClubServicioExtra) -> dict:
+    return {
+        "id": extra.id,
+        "servicio": extra.servicio,
+        "monto": extra.monto,
+        "pagado": extra.pagado,
+        "metodo": extra.metodo,
+        "nota": extra.nota,
+        "creado_en": extra.creado_en.isoformat() if extra.creado_en else None,
+    }
+
+
 def _estado_efectivo(miembro: ClubMiembro) -> str:
     if miembro.estado == "suspendido":
         return "suspendido"
@@ -135,12 +163,17 @@ def _balance(miembro: ClubMiembro, db: Session) -> dict:
         )
         .all()
     )
+    extras = _servicios_extra_vigentes(miembro, db)
     cortes_usados = sum(1 for c in consumos if c.servicio == "corte")
     barbas_usados = sum(1 for c in consumos if c.servicio == "barba")
+    mascarilla_usados = sum(1 for c in consumos if c.servicio == "mascarilla")
+    extra_cortes = sum(1 for e in extras if e.servicio == "corte")
+    extra_barbas = sum(1 for e in extras if e.servicio == "barba")
+    extra_mascarilla = sum(1 for e in extras if e.servicio == "mascarilla")
     return {
-        "cortes": max(servicios["cortes"] - cortes_usados, 0),
-        "barbas": max(servicios["barbas"] - barbas_usados, 0),
-        "mascarilla": mascarilla,
+        "cortes": max(servicios["cortes"] + extra_cortes - cortes_usados, 0),
+        "barbas": max(servicios["barbas"] + extra_barbas - barbas_usados, 0),
+        "mascarilla": max(mascarilla + extra_mascarilla - mascarilla_usados, 0),
     }
 
 
@@ -164,6 +197,42 @@ def _member_response(miembro: ClubMiembro, db: Session) -> dict:
         "grupo_id": miembro.grupo_id,
         "balance": _balance(miembro, db),
     }
+
+
+def _detalle_miembro_response(miembro: ClubMiembro, db: Session) -> dict:
+    resp = _member_response(miembro, db)
+    resp["pagos"] = [
+        {
+            "id": p.id,
+            "monto": p.monto,
+            "metodo": p.metodo,
+            "referencia": p.referencia,
+            "fecha": p.fecha.isoformat() if p.fecha else None,
+            "registrado_por": p.registrado_por,
+        }
+        for p in db.query(ClubPago)
+        .filter(ClubPago.miembro_id == miembro.id)
+        .order_by(ClubPago.fecha.desc())
+        .all()
+    ]
+    resp["consumos"] = [
+        {
+            "id": c.id,
+            "servicio": c.servicio,
+            "fecha": c.fecha.isoformat() if c.fecha else None,
+            "registrado_por": c.registrado_por,
+            "anulado": c.anulado,
+            "motivo_anulacion": c.motivo_anulacion,
+        }
+        for c in db.query(ClubConsumo)
+        .filter(ClubConsumo.miembro_id == miembro.id)
+        .order_by(ClubConsumo.fecha.desc())
+        .all()
+    ]
+    resp["servicios_extra"] = [
+        _servicio_extra_serialize(e) for e in _servicios_extra_vigentes(miembro, db)
+    ]
+    return resp
 
 
 def _generar_qr_token(db: Session) -> str:
@@ -412,36 +481,7 @@ def detalle_miembro(
     if not miembro:
         raise HTTPException(status_code=404, detail="Miembro no encontrado")
     _verificar_barbero_miembro(miembro, usuario)
-    resp = _member_response(miembro, db)
-    resp["pagos"] = [
-        {
-            "id": p.id,
-            "monto": p.monto,
-            "metodo": p.metodo,
-            "referencia": p.referencia,
-            "fecha": p.fecha.isoformat() if p.fecha else None,
-            "registrado_por": p.registrado_por,
-        }
-        for p in db.query(ClubPago)
-        .filter(ClubPago.miembro_id == miembro.id)
-        .order_by(ClubPago.fecha.desc())
-        .all()
-    ]
-    resp["consumos"] = [
-        {
-            "id": c.id,
-            "servicio": c.servicio,
-            "fecha": c.fecha.isoformat() if c.fecha else None,
-            "registrado_por": c.registrado_por,
-            "anulado": c.anulado,
-            "motivo_anulacion": c.motivo_anulacion,
-        }
-        for c in db.query(ClubConsumo)
-        .filter(ClubConsumo.miembro_id == miembro.id)
-        .order_by(ClubConsumo.fecha.desc())
-        .all()
-    ]
-    return resp
+    return _detalle_miembro_response(miembro, db)
 
 
 @router.post("/miembros/{miembro_id}/pago")
@@ -599,6 +639,99 @@ def anular_consumo(
     db.commit()
     db.refresh(miembro)
     return _member_response(miembro, db)
+
+
+@router.post("/miembros/{miembro_id}/servicios-extra")
+def agregar_servicio_extra(
+    miembro_id: int,
+    datos: ServicioExtraCreate,
+    usuario: TokenData = Depends(get_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    _admin_only(usuario)
+    servicio = datos.servicio.strip().lower()
+    if servicio not in SERVICIOS_VALIDOS:
+        raise HTTPException(status_code=400, detail="Servicio inválido")
+    if datos.monto < 0:
+        raise HTTPException(status_code=400, detail="Monto inválido")
+    if datos.pagado and datos.monto <= 0:
+        raise HTTPException(status_code=400, detail="Un servicio pagado debe tener un monto mayor a 0")
+    if datos.pagado and datos.metodo not in {"sinpe", "efectivo"}:
+        raise HTTPException(status_code=400, detail="Método de pago inválido")
+
+    miembro = db.query(ClubMiembro).filter(ClubMiembro.id == miembro_id).first()
+    if not miembro:
+        raise HTTPException(status_code=404, detail="Miembro no encontrado")
+    _verificar_barbero_miembro(miembro, usuario)
+
+    extra = ClubServicioExtra(
+        miembro_id=miembro.id,
+        servicio=servicio,
+        monto=datos.monto,
+        pagado=datos.pagado,
+        metodo=(datos.metodo if datos.pagado else None),
+        nota=datos.nota.strip() if datos.nota else None,
+        creado_por=usuario.username,
+    )
+    db.add(extra)
+    db.flush()
+
+    if datos.pagado:
+        db.add(
+            ClubPago(
+                miembro_id=miembro.id,
+                monto=datos.monto,
+                metodo=datos.metodo,
+                referencia=f"servicio-extra:{extra.id}",
+                registrado_por=usuario.username,
+            )
+        )
+
+    db.commit()
+    db.refresh(miembro)
+    return _detalle_miembro_response(miembro, db)
+
+
+@router.delete("/miembros/{miembro_id}/servicios-extra/{extra_id}")
+def eliminar_servicio_extra(
+    miembro_id: int,
+    extra_id: int,
+    usuario: TokenData = Depends(get_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    _admin_only(usuario)
+    miembro = db.query(ClubMiembro).filter(ClubMiembro.id == miembro_id).first()
+    if not miembro:
+        raise HTTPException(status_code=404, detail="Miembro no encontrado")
+    _verificar_barbero_miembro(miembro, usuario)
+
+    extra = (
+        db.query(ClubServicioExtra)
+        .filter(
+            ClubServicioExtra.id == extra_id,
+            ClubServicioExtra.miembro_id == miembro.id,
+        )
+        .first()
+    )
+    if not extra:
+        raise HTTPException(status_code=404, detail="Servicio extra no encontrado")
+
+    # Si tenía un pago asociado, también lo elimina.
+    pago = (
+        db.query(ClubPago)
+        .filter(
+            ClubPago.miembro_id == miembro.id,
+            ClubPago.referencia == f"servicio-extra:{extra.id}",
+        )
+        .first()
+    )
+    if pago:
+        db.delete(pago)
+
+    db.delete(extra)
+    db.commit()
+    db.refresh(miembro)
+    return _detalle_miembro_response(miembro, db)
 
 
 # ---------------------------------------------------------------- Grupos
@@ -877,6 +1010,9 @@ def tarjeta_miembro(telefono: str, db: Session = Depends(get_db)):
         .filter(ClubPago.miembro_id == miembro.id)
         .order_by(ClubPago.fecha.desc())
         .all()
+    ]
+    resp["servicios_extra"] = [
+        _servicio_extra_serialize(e) for e in _servicios_extra_vigentes(miembro, db)
     ]
     return resp
 
