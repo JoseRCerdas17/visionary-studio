@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -59,6 +60,21 @@ class BloqueoHorarioCreate(BaseModel):
     barbero: str
 
 
+# El plan guarda las claves de servicios en plural ("cortes", "barbas"),
+# mientras que los consumos y servicios extra usan el singular ("corte", "barba").
+_CLAVE_PLAN_POR_TIPO = {"corte": "cortes", "barba": "barbas", "mascarilla": "mascarilla"}
+
+
+def _normalizar_telefono(telefono: str | None) -> str:
+    """Normaliza un teléfono a solo dígitos para comparaciones robustas."""
+    return re.sub(r"\D", "", telefono or "")
+
+
+def _normalizar_barbero(barbero: str | None) -> str:
+    """Normaliza el nombre del barbero (trim + minúsculas) para comparaciones robustas."""
+    return (barbero or "").strip().lower()
+
+
 def _servicio_a_tipo_membresia(servicio: str) -> str | None:
     """Mapea el servicio de la reserva al tipo de balance de membresía que consume."""
     if servicio in ("Corte de Cabello", "Corte y Barba"):
@@ -74,7 +90,8 @@ def _saldo_servicio_membresia(miembro: ClubMiembro, tipo: str, db: Session) -> i
     plan = db.query(ClubPlan).filter(ClubPlan.id == miembro.plan_id).first()
     if plan and plan.servicios:
         try:
-            base = int(json.loads(plan.servicios).get(tipo, 0))
+            data = json.loads(plan.servicios)
+            base = int(data.get(_CLAVE_PLAN_POR_TIPO.get(tipo, tipo), 0))
         except (ValueError, TypeError):
             base = 0
 
@@ -94,6 +111,33 @@ def _saldo_servicio_membresia(miembro: ClubMiembro, tipo: str, db: Session) -> i
     extra = extras_q.count()
     consumido = consumos_q.count()
     return base + extra - consumido
+
+
+def _detectar_miembro_club(telefono: str, barbero: str, servicio: str, db: Session) -> bool:
+    """Determina si el cliente tiene una membresía activa de Visionary Club con
+    saldo disponible para el servicio solicitado."""
+    hoy_cr = datetime.now(CR_TZ).replace(tzinfo=None)
+    telefono_norm = _normalizar_telefono(telefono)
+    barbero_norm = _normalizar_barbero(barbero)
+
+    miembro_club = None
+    for m in db.query(ClubMiembro).filter(ClubMiembro.estado == "activo").all():
+        if (
+            _normalizar_telefono(m.telefono) == telefono_norm
+            and _normalizar_barbero(m.barbero) == barbero_norm
+        ):
+            miembro_club = m
+            break
+
+    tipo_membresia = _servicio_a_tipo_membresia(servicio)
+
+    return (
+        miembro_club is not None
+        and tipo_membresia is not None
+        and miembro_club.fecha_vencimiento is not None
+        and miembro_club.fecha_vencimiento >= hoy_cr
+        and _saldo_servicio_membresia(miembro_club, tipo_membresia, db) > 0
+    )
 
 @router.post("/", response_model=ReservaResponse)
 def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
@@ -132,23 +176,8 @@ def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
     
     # Determina si el cliente tiene una membresía activa de Visionary Club con este barbero
     # y si aún tiene saldo disponible para el servicio solicitado.
-    hoy_cr = datetime.now(CR_TZ).replace(tzinfo=None)
-    miembro_club = (
-        db.query(ClubMiembro)
-        .filter(
-            ClubMiembro.telefono == reserva.telefono.strip(),
-            ClubMiembro.barbero == reserva.barbero,
-            ClubMiembro.estado == "activo",
-        )
-        .first()
-    )
-    tipo_membresia = _servicio_a_tipo_membresia(reserva.servicio)
-    es_miembro_club = (
-        miembro_club is not None
-        and tipo_membresia is not None
-        and miembro_club.fecha_vencimiento is not None
-        and miembro_club.fecha_vencimiento >= hoy_cr
-        and _saldo_servicio_membresia(miembro_club, tipo_membresia, db) > 0
+    es_miembro_club = _detectar_miembro_club(
+        reserva.telefono, reserva.barbero, reserva.servicio, db
     )
 
     datos = reserva.model_dump()
@@ -349,3 +378,26 @@ def limpiar_canceladas_viejas(db: Session = Depends(get_db)):
         db.delete(r)
     db.commit()
     return {"eliminadas": len(eliminadas)}
+
+
+@router.post("/backfill-membresia", dependencies=[Depends(get_admin_actual)])
+def backfill_membresia(db: Session = Depends(get_db)):
+    """Re-evalúa es_miembro_club en reservas pendientes que aún no están marcadas."""
+    pendientes = (
+        db.query(Reserva)
+        .filter(
+            Reserva.estado == "pendiente",
+            Reserva.es_miembro_club == False,
+        )
+        .all()
+    )
+    actualizadas = 0
+    sin_cambio = 0
+    for reserva in pendientes:
+        if _detectar_miembro_club(reserva.telefono, reserva.barbero, reserva.servicio, db):
+            reserva.es_miembro_club = True
+            actualizadas += 1
+        else:
+            sin_cambio += 1
+    db.commit()
+    return {"actualizadas": actualizadas, "sin_cambio": sin_cambio}

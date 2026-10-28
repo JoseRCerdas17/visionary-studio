@@ -250,6 +250,8 @@ export default function Admin() {
   const [formNuevoMiembro, setFormNuevoMiembro] = useState({ nombre: "", telefono: "", email: "", plan_id: 0, barbero: "" });
   const [formServicioExtra, setFormServicioExtra] = useState({ servicio: "corte", monto: "", pagado: false, metodo: "sinpe", nota: "" });
   const [mostrarFormExtra, setMostrarFormExtra] = useState(false);
+  const [backfillResult, setBackfillResult] = useState("");
+  const [backfillLoading, setBackfillLoading] = useState(false);
   const [formPago, setFormPago] = useState({ metodo: "sinpe", monto: "", referencia: "" });
   const [formGrupo, setFormGrupo] = useState({ nombre_grupo: "", metodo: "sinpe", monto: "", barbero: "", miembros: Array.from({ length: 5 }, () => ({ nombre: "", telefono: "" })) });
   const [formQrToken, setFormQrToken] = useState("");
@@ -657,6 +659,31 @@ export default function Admin() {
       }
     } catch {
       // ignore
+    }
+  };
+
+  const corregirReservasPendientes = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return;
+    setBackfillLoading(true);
+    setBackfillResult("");
+    try {
+      const res = await fetch(`${API}/reservas/backfill-membresia`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setBackfillResult(data?.detail || "No se pudo completar la corrección");
+        return;
+      }
+      setBackfillResult(`Se corrigieron ${data.actualizadas} reservas pendientes.`);
+      const filtro = perfilActual === "todos" ? undefined : perfilActual;
+      cargarReservas(filtro).catch(() => undefined);
+    } catch {
+      setBackfillResult("Error de conexión");
+    } finally {
+      setBackfillLoading(false);
     }
   };
 
@@ -1623,8 +1650,9 @@ export default function Admin() {
           <div className="bg-dark-card border border-gold rounded-xl p-8 w-full max-w-md">
             <h3 className="text-white font-black text-xl mb-2">Corte Realizado</h3>
             {modalReserva.es_miembro_club ? (
-              <div className="mb-6 rounded-xl border border-gold/40 bg-gold/10 p-4 text-center">
-                <p className="text-gold text-sm font-bold">💎 Este corte está cubierto por membresía Club</p>
+              <div className="mb-6 flex flex-col items-center gap-3 rounded-xl border border-gold/40 bg-gold/10 p-5 text-center">
+                <span className="inline-flex items-center gap-1 rounded-full bg-gold px-3 py-1 text-xs font-black uppercase tracking-widest text-black">💎 Membresía</span>
+                <p className="text-gold text-sm font-bold">Este corte está cubierto por membresía Visionary Club</p>
               </div>
             ) : (
               <p className="text-gray-500 text-sm mb-6">¿Cómo pagó el cliente?</p>
@@ -2377,6 +2405,26 @@ export default function Admin() {
                         </span>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Mantenimiento: corregir marcado de membresía en reservas pendientes */}
+                {usuarioInfo?.rol === "admin" && (
+                  <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <p className="text-gold text-xs uppercase tracking-widest">Mantenimiento</p>
+                        <p className="text-gray-500 text-xs mt-1">Corrige el marcado de membresía en reservas pendientes creadas antes de la actualización.</p>
+                      </div>
+                      <button
+                        onClick={corregirReservasPendientes}
+                        disabled={backfillLoading}
+                        className="btn-outline text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50"
+                      >
+                        {backfillLoading ? "Corrigiendo..." : "Corregir reservas pendientes"}
+                      </button>
+                    </div>
+                    {backfillResult && <p className="text-gold text-sm mt-2">{backfillResult}</p>}
                   </div>
                 )}
 
