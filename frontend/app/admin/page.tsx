@@ -12,6 +12,15 @@ function getBarberoId(nombre: string): number | null {
 
 const LOBO_BARBERO = "Alonso Lobo";
 const IAN_BARBERO = "Ian Bustos Navarrete";
+const HORARIOS_MIEMBRO_LOBO = ["2:30 PM", "7:00 PM"];
+
+function horaEnMinutos(hora: string): number {
+  const [tiempo, periodoRaw] = hora.split(" ");
+  const [hRaw, mRaw] = tiempo.split(":");
+  let h = parseInt(hRaw, 10) % 12;
+  if ((periodoRaw || "").toUpperCase() === "PM") h += 12;
+  return h * 60 + parseInt(mRaw, 10);
+}
 const PERFILES_BARBEROS = [
   { id: "todos", label: "Todos" },
   { id: LOBO_BARBERO, label: "Lobo" },
@@ -266,7 +275,11 @@ export default function Admin() {
   const [formGasto, setFormGasto] = useState({ descripcion: "", monto: "" });
 
   const barberoBloqueo = getBarbero(barberoBloqueoId);
-  const horariosBarbero = getHorariosBarbero(barberoBloqueoId);
+  const horariosBarberoBase = getHorariosBarbero(barberoBloqueoId);
+  // Lobo tiene además 2 horarios exclusivos para miembros del club; Ian no los tiene.
+  const horariosBarbero = barberoBloqueo?.nombre === LOBO_BARBERO
+    ? [...horariosBarberoBase, ...HORARIOS_MIEMBRO_LOBO].sort((a, b) => horaEnMinutos(a) - horaEnMinutos(b))
+    : horariosBarberoBase;
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -3124,26 +3137,31 @@ export default function Admin() {
           const ocupado = horariosReservadosDelDia.has(hora);
           const bloqueado = horariosBloqueadosDelDia.has(hora);
           const cargando = procesandoHorario === hora;
+          const esExclusivoMiembro = HORARIOS_MIEMBRO_LOBO.includes(hora);
           return (
             <button
               key={hora}
               disabled={ocupado || cargando}
               onClick={() => (bloqueado ? desbloquearHorario(hora) : bloquearHorario(hora))}
+              title={esExclusivoMiembro ? "Horario exclusivo para miembros del club" : undefined}
               className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all duration-300 ${
                 ocupado
                   ? "border-dark-border text-gray-700 cursor-not-allowed line-through"
                   : bloqueado
                   ? "border-red-700 text-red-300 bg-red-950/40 hover:bg-red-900/60"
+                  : esExclusivoMiembro
+                  ? "border-gold text-gold hover:bg-gold hover:text-black"
                   : "border-dark-border text-gray-400 hover:border-gold hover:text-gold"
               }`}
             >
               {cargando ? "..." : hora}
+              {esExclusivoMiembro && <span className="ml-1">💎</span>}
             </button>
           );
         })}
       </div>
       <p className="text-gray-600 text-xs mt-3">
-        Los horarios con cita no se pueden bloquear. Pulsa un horario bloqueado para liberarlo.
+        Los horarios con cita no se pueden bloquear. Pulsa un horario bloqueado para liberarlo. <span className="text-gold">💎 = horario exclusivo para miembros del club.</span>
       </p>
     </div>
   )}
